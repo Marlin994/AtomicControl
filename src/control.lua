@@ -5,12 +5,10 @@ local turbines = require("turbines")
 
 local M = {}
 
--- Turbine control
+-- Turbine RPM target
 M.TARGET_RPM = 1800
-M.RPM_FLOW_UP = 1750
-M.RPM_REENGAGE = 1750
 M.RPM_DISENGAGE = 1700
-M.RPM_FLOW_DOWN = 1825
+M.RPM_REENGAGE = 1750
 M.MAX_RPM = 1850
 
 -- Reactor control
@@ -18,14 +16,20 @@ M.ROD_STEP_ECO = 1
 M.ROD_STEP_NORMAL = 3
 M.ROD_STEP_FAST = 6
 
--- Flow steps based on distance from 1800 RPM
+-- Flow steps by RPM distance
 M.FLOW_STEP_FAR = 25      -- more than 100 RPM away
 M.FLOW_STEP_MED = 10      -- 50-100 RPM away
 M.FLOW_STEP_FINE = 5      -- 25-50 RPM away
 M.FLOW_STEP_ULTRA = 1     -- 0-25 RPM away
 
+-- Calibration
+M.CAL_STABLE_MIN = 1795
+M.CAL_STABLE_MAX = 1805
+M.CAL_STABLE_TICKS = 16
+M.CAL_TIMEOUT_TICKS = 800
+
 -- Steam target
-M.STEAM_SURPLUS_FACTOR = 1.10
+M.STEAM_SURPLUS_FACTOR = 1.12
 M.STEAM_DEFICIT_FACTOR = 1.03
 
 local function enabledReactorList(state, kind)
@@ -38,17 +42,8 @@ local function enabledReactorList(state, kind)
   return out
 end
 
-local function totalSteamUse(state)
-  return turbines.getTotalSteam(state.turbines or {})
-end
-
-local function totalSteamProduction(state)
-  return reactors.getTotalSteamProduction(state.reactors or {})
-end
-
 local function getFlowStepByRpm(rpm)
   local diff = math.abs((rpm or 0) - M.TARGET_RPM)
-
   if diff > 100 then
     return M.FLOW_STEP_FAR
   elseif diff > 50 then
@@ -60,19 +55,157 @@ local function getFlowStepByRpm(rpm)
   end
 end
 
-local function getLowestEnabledTurbineRPM(state)
-  local lowest = nil
+local function getCalibration(cfg, entry)
+  if not cfg or not entry or not entry.name then return nil end
+  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+  local v = cfg.turbineCalibrations[entry.name]
+  if type(v) == "table" then return tonumber(v.flow) end
+  return tonumber(v)
+end
 
+local function setCalibration(cfg, entry, flow)
+  if not cfg or not entry or not entry.name then return end
+  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+  cfg.turbineCalibrations[entry.name] = {
+    flow = math.floor(flow or 0),
+    rpm = M.TARGET_RPM,
+    calibratedAt = os.epoch and os.epoch("utc") or os.clock()
+  }
+end
+
+local function totalSteamUse(state)
+  return turbines.getTotalSteam(state.turbines or {})
+end
+
+local function totalSteamProduction(state)
+  return reactors.getTotalSteamProduction(state.reactors or {})
+end
+
+local function totalSteamDemand(state, cfg)
+  local demand = 0
   for _, entry in ipairs(state.turbines or {}) do
     if entry.enabled then
-      local rpm = turbines.getRPM(entry.p)
-      if lowest == nil or rpm < lowest then
-        lowest = rpm
+      local calibrated = getCalibration(cfg, entry)
+      local currentUse = turbines.getSteam(entry.p)
+      if calibrated and calibrated > 0 then
+        demand = demand + math.max(currentUse, calibrated)
+      else
+        demand = demand + currentUse
       end
     end
   end
+  return demand
+end
 
+local function getLowestEnabledTurbineRPM(state)
+  local lowest = nil
+  for _, entry in ipairs(state.turbines or {}) do
+    if entry.enabled then
+      local rpm = turbines.getRPM(entry.p)
+      if lowest == nil or rpm < lowest then lowest = rpm end
+    end
+  end
   return lowest or 0
+end
+
+function M.startCalibration(state)
+  if not state or not state.turbines then return false end
+  local entry = state.turbines[state.selectedTurbine or 1]
+  if not entry then return false end
+
+  state.calibration = {
+    active = true,
+    turbineIndex = state.selectedTurbine or 1,
+    turbineName = entry.name,
+    stableTicks = 0,
+    ticks = 0
+  }
+
+  state.statusLine = "Kalibrierung T" .. tostring(state.selectedTurbine) .. " gestartet"
+  return true
+end
+
+local function controlCalibration(state, cfg, L)
+  local cal = state.calibration
+  if not cal or not cal.active then return false end
+
+  local entry = state.turbines[cal.turbineIndex]
+  if not entry or entry.name ~= cal.turbineName then
+    state.calibration = nil
+    state.statusLine = "Kalibrierung abgebrochen"
+    return false
+  end
+
+  local t = entry.p
+  local rpm = turbines.getRPM(t)
+  local flow = turbines.getFlow(t)
+  local step = getFlowStepByRpm(rpm)
+
+  entry.enabled = true
+  turbines.setActive(t, true)
+
+  if rpm < M.RPM_DISENGAGE then
+    turbines.setInductor(t, false)
+    turbines.setFlow(t, flow + math.max(step, M.FLOW_STEP_MED))
+  elseif rpm < M.RPM_REENGAGE then
+    turbines.setFlow(t, flow + step)
+  else
+    turbines.setInductor(t, true)
+    if rpm < M.TARGET_RPM then
+      turbines.setFlow(t, flow + step)
+    elseif rpm > M.TARGET_RPM then
+      turbines.setFlow(t, flow - step)
+    end
+  end
+
+  if rpm >= M.CAL_STABLE_MIN and rpm <= M.CAL_STABLE_MAX then
+    cal.stableTicks = cal.stableTicks + 1
+  else
+    cal.stableTicks = 0
+  end
+
+  cal.ticks = cal.ticks + 1
+
+  if cal.stableTicks >= M.CAL_STABLE_TICKS then
+    local finalFlow = turbines.getFlow(t)
+    setCalibration(cfg, entry, finalFlow)
+    state.configDirty = true
+    state.calibration = nil
+    state.statusLine = "T" .. tostring(cal.turbineIndex) .. " kalibriert: " .. tostring(finalFlow) .. " mB/t"
+    return true
+  end
+
+  if cal.ticks >= M.CAL_TIMEOUT_TICKS then
+    local finalFlow = turbines.getFlow(t)
+    if finalFlow > 0 then
+      setCalibration(cfg, entry, finalFlow)
+      state.configDirty = true
+      state.statusLine = "T" .. tostring(cal.turbineIndex) .. " Timeout, Wert gespeichert: " .. tostring(finalFlow) .. " mB/t"
+    else
+      state.statusLine = "Kalibrierung Timeout"
+    end
+    state.calibration = nil
+    return true
+  end
+
+  state.statusLine = "Kalibriere T" .. tostring(cal.turbineIndex) .. ": " .. math.floor(rpm) .. " RPM / " .. math.floor(flow) .. " mB/t"
+  return true
+end
+
+local function applyCalibratedBaseline(entry, cfg)
+  local calibrated = getCalibration(cfg, entry)
+  if not calibrated or calibrated <= 0 then return end
+
+  local current = turbines.getFlow(entry.p)
+  local delta = calibrated - current
+
+  if math.abs(delta) > 50 then
+    if delta > 0 then
+      turbines.setFlow(entry.p, current + M.FLOW_STEP_FAR)
+    else
+      turbines.setFlow(entry.p, current - M.FLOW_STEP_FAR)
+    end
+  end
 end
 
 local function controlTurbines(state, storageFull, cfg)
@@ -91,19 +224,28 @@ local function controlTurbines(state, storageFull, cfg)
       local flow = turbines.getFlow(t)
       local engaged = turbines.getInductor(t)
       local step = getFlowStepByRpm(rpm)
+      local calibrated = getCalibration(cfg, entry)
 
       turbines.setActive(t, state.enabled)
 
       if storageFull and not cyanite then
+        -- Storage full:
+        -- Disengage the turbine so it stops producing power.
+        -- Keep only a small idle flow if calibrated, so the rotor does not become completely sluggish.
         turbines.setInductor(t, false)
-        turbines.setFlow(t, 0)
+        if calibrated and calibrated > 0 then
+          local idleFlow = utils.clamp(math.floor(calibrated * 0.10), 25, 250)
+          if flow > idleFlow then
+            turbines.setFlow(t, flow - math.max(M.FLOW_STEP_FAR, step))
+          elseif flow < idleFlow then
+            turbines.setFlow(t, flow + M.FLOW_STEP_MED)
+          end
+        else
+          turbines.setFlow(t, 0)
+        end
 
       else
-        -- Hysteresis:
-        -- <1700 RPM  : disengage
-        -- 1700-1749  : increase flow, stay in previous engagement state
-        -- >=1750 RPM : engage
-        -- target      : 1800 RPM with finer flow steps near target
+        applyCalibratedBaseline(entry, cfg)
 
         if rpm < M.RPM_DISENGAGE then
           turbines.setInductor(t, false)
@@ -116,7 +258,6 @@ local function controlTurbines(state, storageFull, cfg)
           else
             turbines.setInductor(t, true)
           end
-
           turbines.setFlow(t, flow + step)
           needsMoreSteam = true
 
@@ -125,10 +266,7 @@ local function controlTurbines(state, storageFull, cfg)
 
           if rpm < M.TARGET_RPM then
             turbines.setFlow(t, flow + step)
-            if rpm < M.TARGET_RPM - 10 then
-              needsMoreSteam = true
-            end
-
+            if rpm < M.TARGET_RPM - 10 then needsMoreSteam = true end
           elseif rpm > M.TARGET_RPM then
             turbines.setFlow(t, flow - step)
           end
@@ -148,57 +286,37 @@ local function setLaterReactorsIdle(list, startIndex)
   end
 end
 
-local function activeReactorNeedsMorePower(state, steamPct, steamOk, storageLow, turbinesNeedSteam)
-  local use = totalSteamUse(state)
+local function activeReactorNeedsMorePower(state, cfg, steamPct, steamOk, storageLow, turbinesNeedSteam)
+  local demand = totalSteamDemand(state, cfg)
   local prod = totalSteamProduction(state)
   local lowestRpm = getLowestEnabledTurbineRPM(state)
 
   if storageLow then return true end
   if turbinesNeedSteam then return true end
+  if lowestRpm > 0 and lowestRpm < 1780 then return true end
 
-  -- Turbine demand should drive the reactor.
-  if lowestRpm > 0 and lowestRpm < 1780 then
-    return true
-  end
-
-  -- If steam production is lower than current turbine consumption,
-  -- pull rods out even if the steam buffer is not empty yet.
-  if use > 0 then
+  if demand > 0 then
     if prod <= 0 then
-      if steamOk and steamPct < 0.65 then return true end
-    elseif prod < use * M.STEAM_DEFICIT_FACTOR then
+      if steamOk and steamPct < 0.75 then return true end
+    elseif prod < demand * M.STEAM_DEFICIT_FACTOR then
       return true
     end
   end
 
-  if steamOk and steamPct < 0.35 then
-    return true
-  end
-
+  if steamOk and steamPct < 0.35 then return true end
   return false
 end
 
-local function activeReactorShouldThrottle(state, steamPct, steamOk, storageMidHigh)
-  local use = totalSteamUse(state)
+local function activeReactorShouldThrottle(state, cfg, steamPct, steamOk, storageMidHigh)
+  local demand = totalSteamDemand(state, cfg)
   local prod = totalSteamProduction(state)
   local lowestRpm = getLowestEnabledTurbineRPM(state)
 
   if storageMidHigh then return true end
+  if lowestRpm > 0 and lowestRpm < 1790 then return false end
 
-  -- Do not throttle while turbines are still below target.
-  if lowestRpm > 0 and lowestRpm < 1790 then
-    return false
-  end
-
-  -- If production is substantially above turbine demand, insert rods.
-  if use > 0 and prod > use * M.STEAM_SURPLUS_FACTOR then
-    return true
-  end
-
-  -- If buffer is already high, insert rods.
-  if steamOk and steamPct > 0.75 then
-    return true
-  end
+  if demand > 0 and prod > demand * M.STEAM_SURPLUS_FACTOR then return true end
+  if steamOk and steamPct > 0.75 then return true end
 
   return false
 end
@@ -221,24 +339,18 @@ local function distributeActiveReactors(state, cfg, storageLow, storageHigh, sto
     return
   end
 
-  local use = totalSteamUse(state)
+  local demand = totalSteamDemand(state, cfg)
   local prod = totalSteamProduction(state)
   local lowestRpm = getLowestEnabledTurbineRPM(state)
 
-  -- Load distribution: one active reactor first; add more only if demand cannot be met.
   local wanted = 1
 
-  if use > 0 and prod > 0 and prod < use * 0.80 then
+  if demand > 0 and prod > 0 and prod < demand * 0.80 then
     wanted = cfg.operationMode == "NORMAL" and math.min(#list, 2) or 1
   end
 
-  if lowestRpm > 0 and lowestRpm < 1650 then
-    wanted = #list
-  end
-
-  if steamOk and steamPct < 0.15 then
-    wanted = #list
-  end
+  if lowestRpm > 0 and lowestRpm < 1650 then wanted = #list end
+  if steamOk and steamPct < 0.15 then wanted = #list end
 
   for i, e in ipairs(list) do
     local r = e.r
@@ -250,26 +362,20 @@ local function distributeActiveReactors(state, cfg, storageLow, storageHigh, sto
       local rod = reactors.getRod(r)
       local baseStep = cfg.operationMode == "NORMAL" and M.ROD_STEP_NORMAL or M.ROD_STEP_ECO
 
-      if activeReactorNeedsMorePower(state, steamPct, steamOk, storageLow, turbinesNeedSteam) then
+      if activeReactorNeedsMorePower(state, cfg, steamPct, steamOk, storageLow, turbinesNeedSteam) then
         local step = baseStep
-
-        -- Stronger pull-out when turbine RPM is far too low or steam production lags.
         if lowestRpm > 0 and lowestRpm < 1750 then
           step = M.ROD_STEP_FAST
-        elseif use > 0 and prod > 0 and prod < use * 0.90 then
+        elseif demand > 0 and prod > 0 and prod < demand * 0.90 then
           step = M.ROD_STEP_FAST
         end
-
         reactors.setRods(r, rod - step)
 
-      elseif activeReactorShouldThrottle(state, steamPct, steamOk, storageMidHigh) then
+      elseif activeReactorShouldThrottle(state, cfg, steamPct, steamOk, storageMidHigh) then
         local step = baseStep
-
-        -- Stronger throttle only if production greatly exceeds demand and RPM is healthy.
-        if use > 0 and prod > use * 1.50 and lowestRpm >= 1790 then
+        if demand > 0 and prod > demand * 1.50 and lowestRpm >= 1790 then
           step = M.ROD_STEP_FAST
         end
-
         reactors.setRods(r, rod + step)
 
       else
@@ -329,6 +435,8 @@ end
 function M.update(state, cfg, L)
   L = L or {}
 
+  if controlCalibration(state, cfg, L) then return end
+
   if not state.enabled then
     for _, r in ipairs(state.reactors or {}) do reactors.setActive(r, false) end
     for _, t in ipairs(state.turbines or {}) do
@@ -374,7 +482,9 @@ function M.update(state, cfg, L)
     storageMidHigh
   )
 
-  if cfg.operationMode == "CYANITE" then
+  if state.configDirty then
+    state.statusLine = state.statusLine or "Config geaendert"
+  elseif cfg.operationMode == "CYANITE" then
     state.statusLine = L.statusCyanite or "CYANITE: Fuel wird verbrannt, RPM geregelt"
   elseif cfg.operationMode == "NORMAL" then
     state.statusLine = L.statusNormal or "NORMAL: Lastverteilung aktiv"

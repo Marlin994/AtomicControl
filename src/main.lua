@@ -196,6 +196,12 @@ local function mainLoop()
       reactors.updateSteamProduction(r, 0.5)
     end
     control.update(state, cfg, L)
+
+    if state.configDirty then
+      save()
+      state.configDirty = false
+    end
+
     alarms.evaluate(state, cfg, L)
     buttons = ui.draw(state, cfg, save, rescan, L, toggleLanguage, runUpdate)
     sleep(0.5)

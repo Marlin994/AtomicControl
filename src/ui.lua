@@ -3,6 +3,7 @@ local energy = require("energy")
 local reactors = require("reactors")
 local turbines = require("turbines")
 local alarms = require("alarms")
+local control = require("control")
 
 local M = {}
 
@@ -66,12 +67,18 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
       state.statusLine = L.statusRescan or "Peripherals neu gesucht"
     end)
 
-    addButton("optUpdate", panelX1, 31, panelX2, 33, L.update or "UPDATE", colors.purple, function()
+    addButton("optCalibrate", panelX1, 31, panelX2, 33, L.calibrateTurbine or "CAL TURB", colors.orange, function()
+      if control.startCalibration(state) then
+        state.showOptions = false
+      end
+    end)
+
+    addButton("optUpdate", panelX1, 35, panelX2, 37, L.update or "UPDATE", colors.purple, function()
       if updateFn then updateFn() end
       state.showOptions = false
     end)
 
-    addButton("optBack", panelX1, 35, panelX2, 37, L.back or "BACK", colors.gray, function()
+    addButton("optBack", panelX1, 39, panelX2, 41, L.back or "BACK", colors.gray, function()
       state.showOptions = false
     end)
   end
