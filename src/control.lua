@@ -192,20 +192,15 @@ local function controlCalibration(state, cfg, L)
   return true
 end
 
-local function applyCalibratedBaseline(entry, cfg)
+local function applyCalibratedFlow(entry, cfg)
   local calibrated = getCalibration(cfg, entry)
-  if not calibrated or calibrated <= 0 then return end
+  if not calibrated or calibrated <= 0 then return false end
 
-  local current = turbines.getFlow(entry.p)
-  local delta = calibrated - current
-
-  if math.abs(delta) > 50 then
-    if delta > 0 then
-      turbines.setFlow(entry.p, current + M.FLOW_STEP_FAR)
-    else
-      turbines.setFlow(entry.p, current - M.FLOW_STEP_FAR)
-    end
-  end
+  -- After calibration the turbine flow is fixed.
+  -- RPM is no longer controlled by changing turbine flow.
+  -- The reactor has to follow the calibrated turbine demand instead.
+  turbines.setFlow(entry.p, calibrated)
+  return true
 end
 
 local function controlTurbines(state, storageFull, cfg)
@@ -230,45 +225,64 @@ local function controlTurbines(state, storageFull, cfg)
 
       if storageFull and not cyanite then
         -- Storage full:
-        -- Disengage the turbine so it stops producing power.
-        -- Keep only a small idle flow if calibrated, so the rotor does not become completely sluggish.
+        -- Disengage the turbine and close steam flow.
+        -- When demand returns, calibrated turbines immediately go back to their fixed calibrated flow.
         turbines.setInductor(t, false)
-        if calibrated and calibrated > 0 then
-          local idleFlow = utils.clamp(math.floor(calibrated * 0.10), 25, 250)
-          if flow > idleFlow then
-            turbines.setFlow(t, flow - math.max(M.FLOW_STEP_FAR, step))
-          elseif flow < idleFlow then
-            turbines.setFlow(t, flow + M.FLOW_STEP_MED)
-          end
-        else
-          turbines.setFlow(t, 0)
-        end
+        turbines.setFlow(t, 0)
 
       else
-        applyCalibratedBaseline(entry, cfg)
+        local hasCalibration = applyCalibratedFlow(entry, cfg)
 
-        if rpm < M.RPM_DISENGAGE then
-          turbines.setInductor(t, false)
-          turbines.setFlow(t, flow + math.max(step, M.FLOW_STEP_MED))
-          needsMoreSteam = true
-
-        elseif rpm < M.RPM_REENGAGE then
-          if not engaged then
+        if hasCalibration then
+          -- Calibrated mode:
+          -- Flow stays fixed at the learned value.
+          -- Only the inductor is controlled with hysteresis.
+          -- If RPM falls, request more steam from the reactor.
+          if rpm < M.RPM_DISENGAGE then
             turbines.setInductor(t, false)
+            needsMoreSteam = true
+
+          elseif rpm < M.RPM_REENGAGE then
+            -- Do not re-engage before 1750 RPM.
+            if not engaged then
+              turbines.setInductor(t, false)
+            end
+            needsMoreSteam = true
+
           else
             turbines.setInductor(t, true)
+
+            if rpm < M.TARGET_RPM - 10 then
+              needsMoreSteam = true
+            end
           end
-          turbines.setFlow(t, flow + step)
-          needsMoreSteam = true
 
         else
-          turbines.setInductor(t, true)
+          -- Uncalibrated mode:
+          -- Use automatic flow control until the turbine has been calibrated.
+          if rpm < M.RPM_DISENGAGE then
+            turbines.setInductor(t, false)
+            turbines.setFlow(t, flow + math.max(step, M.FLOW_STEP_MED))
+            needsMoreSteam = true
 
-          if rpm < M.TARGET_RPM then
+          elseif rpm < M.RPM_REENGAGE then
+            if not engaged then
+              turbines.setInductor(t, false)
+            else
+              turbines.setInductor(t, true)
+            end
             turbines.setFlow(t, flow + step)
-            if rpm < M.TARGET_RPM - 10 then needsMoreSteam = true end
-          elseif rpm > M.TARGET_RPM then
-            turbines.setFlow(t, flow - step)
+            needsMoreSteam = true
+
+          else
+            turbines.setInductor(t, true)
+
+            if rpm < M.TARGET_RPM then
+              turbines.setFlow(t, flow + step)
+              if rpm < M.TARGET_RPM - 10 then needsMoreSteam = true end
+            elseif rpm > M.TARGET_RPM then
+              turbines.setFlow(t, flow - step)
+            end
           end
         end
       end
