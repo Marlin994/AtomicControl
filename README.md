@@ -1,87 +1,107 @@
-# AtomicControl
+# ⚛️ AtomicControl
 
-**AtomicControl** is a modular CC:Tweaked controller for Extreme Reactors / Bigger Reactors.
+**AtomicControl** is an advanced reactor and turbine controller for **CC:Tweaked** and **Extreme/Bigger Reactors**.
 
-It provides a touch monitor HMI for controlling active and passive reactors, turbines, energy storage and different operation modes.
+It automatically manages complete power plants consisting of:
 
-## Features
+* ☢️ Active Reactors
+* ☢️ Passive Reactors
+* 🌪️ Multiple Turbines
+* 🔋 Energy Storage
+* ⚖️ Intelligent Load Balancing
+* 🚨 Alarm System
+* 📊 Live Touch Monitor Interface
+* 🌍 German & English language support
 
-- Active and passive reactor support
-- Multiple turbines
-- Energy storage support
-- ECO / NORMAL / CYANITE modes
-- Load balancing
-- Alarm system
-- Current steam production display
-- Touch monitor interface
-- Persistent configuration
-- Autostart setup
-- Language files for German and English
+---
 
-## Screenshots
+# Features
 
-Screenshots can be added to `docs/screenshots/`.
+* Automatic reactor control
+* Active & passive reactor support
+* Multiple turbine support
+* Automatic turbine RPM regulation
+* ECO / NORMAL / CYANITE operating modes
+* Automatic energy storage management
+* Reactor load balancing
+* Alarm system
+* Current steam production display
+* Multi-page touch interface
+* Automatic peripheral detection
+* Configuration is automatically saved
+* Autostart support
+* Modular architecture
+* Language system (German / English)
 
-## Installation
+---
 
-Copy the contents of `src/` to your ComputerCraft computer.
+# Installation
 
-Start AtomicControl:
-
-```lua
-main
-```
-
-Run setup again:
-
-```lua
-main setup
-```
-
-## Language
-
-Edit `reactor_turbine_controller.cfg`:
+## Recommended (Pastebin)
 
 ```lua
-language = "de"
+pastebin run rmAZkc7s
 ```
 
-or:
+The bootstrap loader always downloads the latest version directly from GitHub.
+
+---
+
+## Alternative (GitHub)
 
 ```lua
-language = "en"
+wget run https://raw.githubusercontent.com/Marlin994/AtomicControl/main/install.lua
 ```
 
-## Project Structure
+---
+
+# Updating
+
+```lua
+wget run https://raw.githubusercontent.com/Marlin994/AtomicControl/main/update.lua
+```
+
+---
+
+# Requirements
+
+* Minecraft
+* CC:Tweaked
+* Extreme Reactors or Bigger Reactors
+* Advanced Monitor (recommended: 5×4)
+* Wired Modem Network
+
+---
+
+# Project Structure
 
 ```text
 src/
-  main.lua
-  config.lua
-  control.lua
-  devices.lua
-  reactors.lua
-  turbines.lua
-  energy.lua
-  alarms.lua
-  ui.lua
-  utils.lua
-  lang.lua
-  lang/
-    de.lua
-    en.lua
-
 installer/
-  install.lua
-  update.lua
-
 docs/
-  setup.md
-  peripherals.md
-  modes.md
-  language.md
+lang/
 ```
 
-## License
+---
 
-MIT License.
+# Screenshots
+
+*Coming soon...*
+
+---
+
+# Contributing
+
+Pull requests, bug reports, and feature requests are always welcome.
+
+If you have ideas or find a bug, feel free to open an Issue.
+
+---
+
+# License
+
+This project is licensed under the **MIT License**.
+
+---
+
+Made with ❤️ for the CC:Tweaked community.
