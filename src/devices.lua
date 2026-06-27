@@ -1,4 +1,5 @@
 local utils = require("utils")
+local energy = require("energy")
 local M = {}
 
 function M.hasMethod(p, name)
@@ -36,14 +37,29 @@ function M.isReactor(p)
 end
 
 function M.findStorage()
+  local firstCandidate, firstCandidateName = nil, nil
+
   for _, name in ipairs(peripheral.getNames()) do
     local p = peripheral.wrap(name)
-    if p then
-      if M.hasMethod(p, "getEnergyStored") and M.hasMethod(p, "getMaxEnergyStored") then return p, name end
-      if M.hasMethod(p, "getEnergy") and M.hasMethod(p, "getMaxEnergy") then return p, name end
-      if M.hasMethod(p, "getEnergyFilledPercentage") then return p, name end
+
+    if p and not M.isReactor(p) and not M.isTurbine(p) then
+      if energy.isEnergyStorage(p) then
+        local stored, max, ok = energy.getStored(p)
+
+        if ok then
+          return p, name
+        end
+
+        -- Keep as fallback even if current call failed for some reason.
+        if not firstCandidate then
+          firstCandidate = p
+          firstCandidateName = name
+        end
+      end
     end
   end
+
+  return firstCandidate, firstCandidateName
 end
 
 function M.scan(state, cfg)

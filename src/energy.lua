@@ -10,6 +10,20 @@ local function call(storage, method)
   return utils.safe(function() return storage[method]() end, nil)
 end
 
+function M.isEnergyStorage(storage)
+  if not storage then return false end
+
+  if has(storage, "getEnergyStored") and has(storage, "getMaxEnergyStored") then return true end
+  if has(storage, "getEnergyStored") and has(storage, "getEnergyCapacity") then return true end
+  if has(storage, "getEnergyStats") then return true end
+  if has(storage, "getEnergy") and has(storage, "getMaxEnergy") then return true end
+  if has(storage, "getStored") and has(storage, "getCapacity") then return true end
+  if has(storage, "getRFStored") and has(storage, "getMaxRFStored") then return true end
+  if has(storage, "getEnergyFilledPercentage") then return true end
+
+  return false
+end
+
 function M.getStored(storage)
   if not storage then return 0, 1, false end
 
@@ -78,23 +92,15 @@ local function getDirectIo(storage)
     }
   end
 
-  -- Some APIs only provide one signed/absolute IO value.
+  -- Some APIs provide one IO value.
   local io = call(storage, "getEnergyIoLastTick")
   if io ~= nil then
     io = tonumber(io) or 0
 
     if io >= 0 then
-      return {
-        input = io,
-        output = 0,
-        net = io
-      }
+      return { input = io, output = 0, net = io }
     else
-      return {
-        input = 0,
-        output = math.abs(io),
-        net = io
-      }
+      return { input = 0, output = math.abs(io), net = io }
     end
   end
 

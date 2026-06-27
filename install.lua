@@ -2,6 +2,7 @@
 -- https://github.com/Marlin994/AtomicControl
 
 local BASE = "https://raw.githubusercontent.com/Marlin994/AtomicControl/main/src/"
+local CFG_FILE = "reactor_turbine_controller.cfg"
 
 local files = {
   "main.lua",
@@ -22,7 +23,7 @@ local files = {
   "reactorcalibration.lua",
   "startup.lua",
   "lang/de.lua",
-  "lang/en.lua",
+  "lang/en.lua"
 }
 
 local function ensureDir(path)
@@ -31,6 +32,8 @@ local function ensureDir(path)
     fs.makeDir(dir)
   end
 end
+
+local hadConfig = fs.exists(CFG_FILE)
 
 term.clear()
 term.setCursorPos(1, 1)
@@ -63,7 +66,15 @@ end
 
 print("")
 print("Installation complete.")
-print("Starting setup...")
 sleep(1)
 
-shell.run("main", "setup")
+if hadConfig then
+  print("Existing config found.")
+  print("Starting AtomicControl without setup...")
+  sleep(1)
+  shell.run("main")
+else
+  print("Starting first setup...")
+  sleep(1)
+  shell.run("main", "setup")
+end
