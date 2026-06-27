@@ -6,6 +6,10 @@ local M = {}
 -- NORMAL mode aims for only a small steam surplus.
 M.RESERVE_NORMAL = 1.03
 
+-- If the real measured flow is much higher than the calibrated value,
+-- we temporarily trust the measured value to avoid starving the turbine.
+M.MEASURED_OVERRIDE_FACTOR = 1.08
+
 local function getCalibration(cfg, entry)
   if not cfg or not entry or not entry.name then return nil end
   cfg.turbineCalibrations = cfg.turbineCalibrations or {}
@@ -23,6 +27,8 @@ function M.getDemand(state, cfg)
   local measured = 0
   local calibrated = 0
   local demand = 0
+  local calibratedCount = 0
+  local uncalibratedCount = 0
 
   for _, entry in ipairs(state.turbines or {}) do
     if entry.enabled then
@@ -33,8 +39,18 @@ function M.getDemand(state, cfg)
 
       if cal and cal > 0 then
         calibrated = calibrated + cal
-        demand = demand + math.max(current, cal)
+        calibratedCount = calibratedCount + 1
+
+        -- Calibration is the main reference.
+        -- Only override it if the current measured demand is clearly higher.
+        if current > cal * M.MEASURED_OVERRIDE_FACTOR then
+          demand = demand + current
+        else
+          demand = demand + cal
+        end
       else
+        -- No calibration yet: fall back to measured flow.
+        uncalibratedCount = uncalibratedCount + 1
         demand = demand + current
       end
     end
@@ -43,7 +59,9 @@ function M.getDemand(state, cfg)
   return {
     measured = measured,
     calibrated = calibrated,
-    demand = demand
+    demand = demand,
+    calibratedCount = calibratedCount,
+    uncalibratedCount = uncalibratedCount
   }
 end
 

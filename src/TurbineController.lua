@@ -17,6 +17,15 @@ M.CAL_STABLE_MAX = 1805
 M.CAL_STABLE_TICKS = 16
 M.CAL_TIMEOUT_TICKS = 800
 
+-- Adaptive calibration:
+-- If a turbine runs stable near 1800 RPM for a while, AtomicControl slowly
+-- learns the real flow needed for that turbine.
+M.LEARN_MIN_RPM = 1798
+M.LEARN_MAX_RPM = 1802
+M.LEARN_REQUIRED_TICKS = 60
+M.LEARN_CHANGE_THRESHOLD = 0.02
+M.LEARN_ALPHA = 0.10
+
 local function stepForRPM(rpm)
   local diff = math.abs((rpm or 0) - M.TARGET_RPM)
 
@@ -72,8 +81,82 @@ function M.setCalibration(cfg, entry, flow)
     flow = nominal,
     idleFlow = utils.clamp(math.floor(nominal * 0.10), 25, 250),
     rpm = M.TARGET_RPM,
+    learned = false,
     calibratedAt = os.epoch and os.epoch("utc") or os.clock()
   }
+end
+
+local function updateCalibrationValue(cfg, entry, newFlow, learned)
+  if not cfg or not entry or not entry.name then return end
+  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+
+  local rounded = math.floor(newFlow or 0)
+  if rounded <= 0 then return end
+
+  local old = cfg.turbineCalibrations[entry.name]
+  local oldTable = type(old) == "table" and old or {}
+
+  cfg.turbineCalibrations[entry.name] = {
+    flow = rounded,
+    idleFlow = utils.clamp(math.floor(rounded * 0.10), 25, 250),
+    rpm = M.TARGET_RPM,
+    learned = learned or oldTable.learned or false,
+    calibratedAt = oldTable.calibratedAt or (os.epoch and os.epoch("utc") or os.clock()),
+    updatedAt = os.epoch and os.epoch("utc") or os.clock()
+  }
+end
+
+local function learnCalibration(state, cfg, entry, rpm, flow, storageFull)
+  if storageFull or cfg.operationMode == "CYANITE" then
+    entry.learnTicks = 0
+    return
+  end
+
+  if not entry.enabled then
+    entry.learnTicks = 0
+    return
+  end
+
+  if not turbines.getInductor(entry.p) then
+    entry.learnTicks = 0
+    return
+  end
+
+  if rpm < M.LEARN_MIN_RPM or rpm > M.LEARN_MAX_RPM then
+    entry.learnTicks = 0
+    return
+  end
+
+  if flow <= 0 then
+    entry.learnTicks = 0
+    return
+  end
+
+  entry.learnTicks = (entry.learnTicks or 0) + 1
+
+  if entry.learnTicks < M.LEARN_REQUIRED_TICKS then
+    return
+  end
+
+  entry.learnTicks = 0
+
+  local old = M.getCalibration(cfg, entry)
+
+  if not old or old <= 0 then
+    updateCalibrationValue(cfg, entry, flow, true)
+    state.configDirty = true
+    state.statusLine = "Learned T calibration: " .. math.floor(flow) .. " mB/t"
+    return
+  end
+
+  local diff = math.abs(flow - old) / old
+
+  if diff >= M.LEARN_CHANGE_THRESHOLD then
+    local learnedFlow = old + ((flow - old) * M.LEARN_ALPHA)
+    updateCalibrationValue(cfg, entry, learnedFlow, true)
+    state.configDirty = true
+    state.statusLine = "Adjusted T calibration: " .. math.floor(learnedFlow) .. " mB/t"
+  end
 end
 
 function M.startCalibration(state)
@@ -174,6 +257,7 @@ function M.update(state, cfg, storageFull)
       turbines.setActive(t, false)
       turbines.setInductor(t, false)
       turbines.setFlow(t, 0)
+      entry.learnTicks = 0
     else
       local rpm = turbines.getRPM(t)
       local flow = turbines.getFlow(t)
@@ -199,6 +283,8 @@ function M.update(state, cfg, storageFull)
         else
           turbines.setFlow(t, 0)
         end
+
+        entry.learnTicks = 0
 
       else
         -- If calibrated, quickly move toward the nominal baseline if we are far away.
@@ -230,6 +316,8 @@ function M.update(state, cfg, storageFull)
             turbines.setFlow(t, flow - step)
           end
         end
+
+        learnCalibration(state, cfg, entry, rpm, turbines.getFlow(t), storageFull)
       end
     end
   end
