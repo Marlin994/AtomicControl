@@ -1,6 +1,6 @@
 local reactors = require("reactors")
-local SteamManager = require("SteamManager")
-local TurbineController = require("TurbineController")
+local SteamManager = require("steammanager")
+local TurbineController = require("turbinecontroller")
 
 local M = {}
 

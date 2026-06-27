@@ -1,9 +1,9 @@
 local energy = require("energy")
 local reactors = require("reactors")
 local turbines = require("turbines")
-local TurbineController = require("TurbineController")
-local ActiveReactorController = require("ActiveReactorController")
-local PassiveReactorController = require("PassiveReactorController")
+local TurbineController = require("turbinecontroller")
+local ActiveReactorController = require("activereactorcontroller")
+local PassiveReactorController = require("passivereactorcontroller")
 
 local M = {}
 
