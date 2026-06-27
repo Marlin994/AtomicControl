@@ -42,7 +42,8 @@ local function drawButton(mon, b)
   writeAt(mon, x, y, b.label, colors.white, b.bg)
 end
 
-local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPage, turbinesPerPage)
+local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPage, turbinesPerPage, L)
+  L = L or {}
   local panelX1, panelX2 = 62, 88
   local leftX1, leftX2 = 62, 74
   local rightX1, rightX2 = 76, 88
@@ -274,7 +275,7 @@ function M.draw(state, cfg, saveFn, rescanFn, L)
     y=y+1
   end
 
-  drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPage, turbinesPerPage)
+  drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPage, turbinesPerPage, L)
 
   for _, b in pairs(buttons) do drawButton(mon,b) end
   writeAt(mon,2,h,utils.padRight(state.statusLine or "", math.max(10,w-2)), colors.lightGray)
