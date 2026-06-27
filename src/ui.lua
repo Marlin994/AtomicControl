@@ -293,7 +293,7 @@ function M.draw(state, cfg, saveFn, rescanFn, L, languageFn, updateFn)
   local lastTurbine = math.min(#state.turbines, firstTurbine+turbinesPerPage-1)
 
   writeAt(mon,2,29,(L.turbines or "Turbinen")..": "..#state.turbines.." | "..(L.selected or "Auswahl")..": T"..state.selectedTurbine.." | "..(L.page or "Seite").." "..state.turbinePage.."/"..totalPages,colors.yellow)
-  writeAt(mon,2,30,"Nr",colors.gray); writeAt(mon,9,30,L.status or "Status",colors.gray); writeAt(mon,19,30,"RPM",colors.gray); writeAt(mon,28,30,"mB/t",colors.gray); writeAt(mon,38,30,"RF/t",colors.gray); writeAt(mon,48,30,"mB/RF",colors.gray)
+  writeAt(mon,2,30,"Nr",colors.gray); writeAt(mon,9,30,L.status or "Status",colors.gray); writeAt(mon,19,30,"RPM",colors.gray); writeAt(mon,27,30,"Flow",colors.gray); writeAt(mon,39,30,"RF/t",colors.gray); writeAt(mon,49,30,"mB/RF",colors.gray)
   writeAt(mon,2,31,string.rep("-",54),colors.gray)
   y=32
   for i=firstTurbine,lastTurbine do
@@ -302,6 +302,13 @@ function M.draw(state, cfg, saveFn, rescanFn, L, languageFn, updateFn)
     local steam=turbines.getSteam(e.p)
     local rf=turbines.getRF(e.p)
     local eff=rf>0 and steam/rf or 0
+    local cal = "---"
+    if cfg.turbineCalibrations and e.name and cfg.turbineCalibrations[e.name] then
+      local c = cfg.turbineCalibrations[e.name]
+      if type(c)=="table" then c=c.flow end
+      if c then cal=tostring(math.floor(c)) end
+    end
+    local flowText = tostring(math.floor(steam)).."/"..cal
     local rpmColor=colors.lime
     if rpm<1700 or rpm>1850 then rpmColor=colors.red elseif rpm<1750 then rpmColor=colors.orange end
     if rpm==0 then rpmColor=colors.gray end
@@ -321,9 +328,9 @@ function M.draw(state, cfg, saveFn, rescanFn, L, languageFn, updateFn)
     writeAt(mon,2,y,(i==state.selectedTurbine and ">" or " ").."T"..i, i==state.selectedTurbine and colors.lime or colors.yellow)
     writeAt(mon,9,y,utils.padRight(tStatus,6), tStatusColor)
     writeAt(mon,19,y,utils.padLeft(math.floor(rpm),5),rpmColor)
-    writeAt(mon,28,y,utils.padLeft(math.floor(steam),6),colors.orange)
-    writeAt(mon,38,y,utils.padLeft(utils.formatShort(rf),8),colors.lime)
-    writeAt(mon,48,y,utils.padLeft(string.format("%.4f",eff),7),colors.cyan)
+    writeAt(mon,27,y,utils.padLeft(flowText,11),colors.orange)
+    writeAt(mon,39,y,utils.padLeft(utils.formatShort(rf),8),colors.lime)
+    writeAt(mon,49,y,utils.padLeft(string.format("%.4f",eff),7),colors.cyan)
     y=y+1
   end
 
