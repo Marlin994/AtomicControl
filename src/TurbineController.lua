@@ -1,0 +1,210 @@
+local utils = require("utils")
+local turbines = require("turbines")
+
+local M = {}
+
+M.TARGET_RPM = 1800
+M.RPM_DISENGAGE = 1700
+M.RPM_REENGAGE = 1750
+
+M.FLOW_STEP_FAR = 25
+M.FLOW_STEP_MED = 10
+M.FLOW_STEP_FINE = 5
+M.FLOW_STEP_ULTRA = 1
+
+M.CAL_STABLE_MIN = 1795
+M.CAL_STABLE_MAX = 1805
+M.CAL_STABLE_TICKS = 16
+M.CAL_TIMEOUT_TICKS = 800
+
+local function stepForRPM(rpm)
+  local diff = math.abs((rpm or 0) - M.TARGET_RPM)
+  if diff > 100 then return M.FLOW_STEP_FAR end
+  if diff > 50 then return M.FLOW_STEP_MED end
+  if diff > 25 then return M.FLOW_STEP_FINE end
+  return M.FLOW_STEP_ULTRA
+end
+
+function M.getCalibration(cfg, entry)
+  if not cfg or not entry or not entry.name then return nil end
+  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+  local v = cfg.turbineCalibrations[entry.name]
+  if type(v) == "table" then return tonumber(v.flow) end
+  return tonumber(v)
+end
+
+function M.setCalibration(cfg, entry, flow)
+  if not cfg or not entry or not entry.name then return end
+  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+  cfg.turbineCalibrations[entry.name] = {
+    flow = math.floor(flow or 0),
+    rpm = M.TARGET_RPM,
+    calibratedAt = os.epoch and os.epoch("utc") or os.clock()
+  }
+end
+
+function M.startCalibration(state)
+  local entry = state.turbines and state.turbines[state.selectedTurbine or 1]
+  if not entry then return false end
+
+  state.calibration = {
+    active = true,
+    turbineIndex = state.selectedTurbine or 1,
+    turbineName = entry.name,
+    stableTicks = 0,
+    ticks = 0
+  }
+
+  state.statusLine = "Calibration T" .. tostring(state.selectedTurbine) .. " started"
+  return true
+end
+
+function M.runCalibration(state, cfg)
+  local cal = state.calibration
+  if not cal or not cal.active then return false end
+
+  local entry = state.turbines[cal.turbineIndex]
+  if not entry or entry.name ~= cal.turbineName then
+    state.calibration = nil
+    state.statusLine = "Calibration cancelled"
+    return true
+  end
+
+  local t = entry.p
+  local rpm = turbines.getRPM(t)
+  local flow = turbines.getFlow(t)
+  local step = stepForRPM(rpm)
+
+  entry.enabled = true
+  turbines.setActive(t, true)
+
+  if rpm < M.RPM_DISENGAGE then
+    turbines.setInductor(t, false)
+    turbines.setFlow(t, flow + math.max(step, M.FLOW_STEP_MED))
+  elseif rpm < M.RPM_REENGAGE then
+    turbines.setFlow(t, flow + step)
+  else
+    turbines.setInductor(t, true)
+    if rpm < M.TARGET_RPM then
+      turbines.setFlow(t, flow + step)
+    elseif rpm > M.TARGET_RPM then
+      turbines.setFlow(t, flow - step)
+    end
+  end
+
+  if rpm >= M.CAL_STABLE_MIN and rpm <= M.CAL_STABLE_MAX then
+    cal.stableTicks = cal.stableTicks + 1
+  else
+    cal.stableTicks = 0
+  end
+
+  cal.ticks = cal.ticks + 1
+
+  if cal.stableTicks >= M.CAL_STABLE_TICKS then
+    local finalFlow = turbines.getFlow(t)
+    M.setCalibration(cfg, entry, finalFlow)
+    state.configDirty = true
+    state.calibration = nil
+    state.statusLine = "T" .. tostring(cal.turbineIndex) .. " calibrated: " .. tostring(finalFlow) .. " mB/t"
+    return true
+  end
+
+  if cal.ticks >= M.CAL_TIMEOUT_TICKS then
+    local finalFlow = turbines.getFlow(t)
+    if finalFlow > 0 then
+      M.setCalibration(cfg, entry, finalFlow)
+      state.configDirty = true
+      state.statusLine = "T" .. tostring(cal.turbineIndex) .. " timeout saved: " .. tostring(finalFlow) .. " mB/t"
+    else
+      state.statusLine = "Calibration timeout"
+    end
+    state.calibration = nil
+    return true
+  end
+
+  state.statusLine = "Cal T" .. tostring(cal.turbineIndex) .. ": " .. math.floor(rpm) .. " RPM / " .. math.floor(flow) .. " mB/t"
+  return true
+end
+
+function M.update(state, cfg, storageFull)
+  local needsSteam = false
+  local cyanite = cfg.operationMode == "CYANITE"
+
+  for _, entry in ipairs(state.turbines or {}) do
+    local t = entry.p
+
+    if not entry.enabled then
+      turbines.setActive(t, false)
+      turbines.setInductor(t, false)
+      turbines.setFlow(t, 0)
+    else
+      local rpm = turbines.getRPM(t)
+      local flow = turbines.getFlow(t)
+      local step = stepForRPM(rpm)
+      local engaged = turbines.getInductor(t)
+      local calibrated = M.getCalibration(cfg, entry)
+
+      turbines.setActive(t, state.enabled)
+
+      if storageFull and not cyanite then
+        turbines.setInductor(t, false)
+
+        if calibrated and calibrated > 0 then
+          local idle = utils.clamp(math.floor(calibrated * 0.10), 25, 250)
+          if flow > idle then
+            turbines.setFlow(t, flow - math.max(step, M.FLOW_STEP_MED))
+          elseif flow < idle then
+            turbines.setFlow(t, flow + M.FLOW_STEP_ULTRA)
+          end
+        else
+          turbines.setFlow(t, 0)
+        end
+
+      else
+        if calibrated and calibrated > 0 and math.abs(calibrated - flow) > 100 then
+          if calibrated > flow then
+            turbines.setFlow(t, flow + M.FLOW_STEP_FAR)
+          else
+            turbines.setFlow(t, flow - M.FLOW_STEP_FAR)
+          end
+        end
+
+        if rpm < M.RPM_DISENGAGE then
+          turbines.setInductor(t, false)
+          turbines.setFlow(t, flow + math.max(step, M.FLOW_STEP_MED))
+          needsSteam = true
+
+        elseif rpm < M.RPM_REENGAGE then
+          turbines.setInductor(t, engaged)
+          turbines.setFlow(t, flow + step)
+          needsSteam = true
+
+        else
+          turbines.setInductor(t, true)
+
+          if rpm < M.TARGET_RPM then
+            turbines.setFlow(t, flow + step)
+            if rpm < M.TARGET_RPM - 10 then needsSteam = true end
+          elseif rpm > M.TARGET_RPM then
+            turbines.setFlow(t, flow - step)
+          end
+        end
+      end
+    end
+  end
+
+  return needsSteam
+end
+
+function M.lowestRPM(state)
+  local lowest = nil
+  for _, entry in ipairs(state.turbines or {}) do
+    if entry.enabled then
+      local rpm = turbines.getRPM(entry.p)
+      if lowest == nil or rpm < lowest then lowest = rpm end
+    end
+  end
+  return lowest or 0
+end
+
+return M

@@ -15,6 +15,10 @@ local files = {
   "ui.lua",
   "utils.lua",
   "lang.lua",
+  "SteamManager.lua",
+  "TurbineController.lua",
+  "ActiveReactorController.lua",
+  "PassiveReactorController.lua",
   "startup.lua",
   "lang/de.lua",
   "lang/en.lua"
