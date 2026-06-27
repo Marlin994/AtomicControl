@@ -84,36 +84,32 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
     writeAt(mon, panelX1, 2, L.options or "OPTIONEN", colors.yellow)
     writeAt(mon, panelX1, 3, string.rep("-", panelX2-panelX1+1), colors.gray)
 
-    writeAt(mon, panelX1, 5, L.software or "Software", colors.cyan)
-
-    addButton("optLang", panelX1, 7, panelX2, 9, L.language or "SPRACHE", colors.blue, function()
+    addButton("optLang", panelX1, 5, panelX2, 7, (L.language or "LANG") .. ": " .. string.upper(cfg.language or "de"), colors.blue, function()
       if languageFn then languageFn() end
       state.showOptions = false
     end)
 
-    addButton("optUpdate", panelX1, 11, panelX2, 13, L.update or "UPDATE", colors.purple, function()
-      if updateFn then updateFn() end
-      state.showOptions = false
-    end)
-
-    addButton("optRescan", panelX1, 15, panelX2, 17, L.rescan or "RESCAN", colors.brown, function()
+    addButton("optRescan", panelX1, 9, panelX2, 11, L.rescan or "RESCAN", colors.brown, function()
       if rescanFn then rescanFn() end
       state.showOptions = false
       state.statusLine = L.statusRescan or "Peripherals neu gesucht"
     end)
 
-    writeAt(mon, panelX1, 20, L.calibration or "Kalibrieren", colors.cyan)
-
-    addButton("optCalCoarse", panelX1, 22, panelX2, 24, L.calibrateCoarse or "GROB", colors.orange, function()
-      if control.startCalibration(state, "coarse") then
+    addButton("optCalTurbine", panelX1, 13, panelX2, 15, L.calibrateTurbine or "CAL T", colors.orange, function()
+      if control.startCalibration(state) then
         state.showOptions = false
       end
     end)
 
-    addButton("optCalFine", panelX1, 26, panelX2, 28, L.calibrateFine or "FEIN", colors.orange, function()
-      if control.startCalibration(state, "fine") then
+    addButton("optCalReactor", panelX1, 17, panelX2, 19, L.calibrateReactor or "CAL R", colors.orange, function()
+      if control.startReactorCalibration(state) then
         state.showOptions = false
       end
+    end)
+
+    addButton("optUpdate", panelX1, 21, panelX2, 23, L.update or "UPDATE", colors.purple, function()
+      if updateFn then updateFn() end
+      state.showOptions = false
     end)
 
     addButton("optBack", panelX1, 45, panelX2, 47, L.back or "BACK", colors.gray, function()
