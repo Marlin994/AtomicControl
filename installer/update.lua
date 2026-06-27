@@ -1,4 +1,6 @@
 -- AtomicControl Updater
+-- Downloads and runs the current installer.
+
 local INSTALL_URL = "https://raw.githubusercontent.com/Marlin994/AtomicControl/main/install.lua"
 local TEMP_FILE = "atomiccontrol_update_install.lua"
 
@@ -19,8 +21,17 @@ local ok = shell.run("wget", INSTALL_URL, TEMP_FILE)
 if not ok or not fs.exists(TEMP_FILE) then
   print("")
   print("Download failed.")
+  print("Please check:")
+  print("- HTTP API enabled")
+  print("- Internet connection")
+  print("- GitHub repository is public")
+  print("- install.lua exists in repository root")
   return
 end
+
+print("")
+print("Running installer...")
+print("")
 
 shell.run(TEMP_FILE)
 

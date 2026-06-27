@@ -9,6 +9,31 @@ local M = {}
 
 local buttons = {}
 
+local function getTurbineCalibration(cfg, entry)
+  if not cfg or not entry or not entry.name then return nil end
+  if type(cfg.turbineCalibrations) ~= "table" then return nil end
+
+  local v = cfg.turbineCalibrations[entry.name]
+  if type(v) == "table" then
+    return tonumber(v.flow)
+  end
+
+  return tonumber(v)
+end
+
+local function setTurbineCalibration(cfg, entry, flow)
+  if not cfg or not entry or not entry.name or not flow then return false end
+  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+
+  cfg.turbineCalibrations[entry.name] = {
+    flow = math.floor(flow),
+    rpm = 1800,
+    adjustedAt = os.epoch and os.epoch("utc") or os.clock()
+  }
+
+  return true
+end
+
 local function writeAt(mon, x, y, text, fg, bg)
   if not mon then return end
   mon.setCursorPos(x, y)
@@ -53,35 +78,49 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
   local smallRightA, smallRightB, smallRightC, smallRightD = 76, 81, 83, 88
 
   local function drawOptionsMenu()
-    writeAt(mon, panelX1, 20, string.rep("-", panelX2-panelX1+1), colors.gray)
-    writeAt(mon, panelX1, 21, L.options or "OPTIONEN", colors.yellow)
+    -- Options menu gets the full right panel.
+    -- General controls are hidden while this menu is open.
 
-    addButton("optLang", panelX1, 23, panelX2, 25, (L.language or "LANG") .. ": " .. string.upper(cfg.language or "de"), colors.blue, function()
+    writeAt(mon, panelX1, 2, L.options or "OPTIONEN", colors.yellow)
+    writeAt(mon, panelX1, 3, string.rep("-", panelX2-panelX1+1), colors.gray)
+
+    writeAt(mon, panelX1, 5, L.software or "Software", colors.cyan)
+
+    addButton("optLang", panelX1, 7, panelX2, 9, L.language or "SPRACHE", colors.blue, function()
       if languageFn then languageFn() end
       state.showOptions = false
     end)
 
-    addButton("optRescan", panelX1, 27, panelX2, 29, L.rescan or "RESCAN", colors.brown, function()
+    addButton("optUpdate", panelX1, 11, panelX2, 13, L.update or "UPDATE", colors.purple, function()
+      if updateFn then updateFn() end
+      state.showOptions = false
+    end)
+
+    addButton("optRescan", panelX1, 15, panelX2, 17, L.rescan or "RESCAN", colors.brown, function()
       if rescanFn then rescanFn() end
       state.showOptions = false
       state.statusLine = L.statusRescan or "Peripherals neu gesucht"
     end)
 
-    addButton("optCalibrate", panelX1, 31, panelX2, 33, L.calibrateTurbine or "CAL T", colors.orange, function()
-      if control.startCalibration(state) then
+    writeAt(mon, panelX1, 20, L.calibration or "Kalibrieren", colors.cyan)
+
+    addButton("optCalCoarse", panelX1, 22, panelX2, 24, L.calibrateCoarse or "GROB", colors.orange, function()
+      if control.startCalibration(state, "coarse") then
         state.showOptions = false
       end
     end)
 
-    addButton("optUpdate", panelX1, 35, panelX2, 37, L.update or "UPDATE", colors.purple, function()
-      if updateFn then updateFn() end
-      state.showOptions = false
+    addButton("optCalFine", panelX1, 26, panelX2, 28, L.calibrateFine or "FEIN", colors.orange, function()
+      if control.startCalibration(state, "fine") then
+        state.showOptions = false
+      end
     end)
 
-    addButton("optBack", panelX1, 39, panelX2, 41, L.back or "BACK", colors.gray, function()
+    addButton("optBack", panelX1, 45, panelX2, 47, L.back or "BACK", colors.gray, function()
       state.showOptions = false
     end)
   end
+
 
   local function manualColor(base)
     if cfg.auto then return colors.gray end
@@ -94,6 +133,11 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
       return true
     end
     return false
+  end
+
+  if state.showOptions then
+    drawOptionsMenu()
+    return
   end
 
   writeAt(mon, panelX1, 2, L.general or "ALLGEMEIN", colors.yellow)
@@ -123,11 +167,6 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
   addButton("minUp", rightX1,12,rightX2,14,L.minUp or "MIN +", colors.purple, function() cfg.storageMin = utils.clamp(cfg.storageMin+5,0,cfg.storageMax-5) end)
   addButton("maxDown", leftX1,16,leftX2,18,L.maxDown or "MAX -", colors.purple, function() cfg.storageMax = utils.clamp(cfg.storageMax-5,cfg.storageMin+5,100) end)
   addButton("maxUp", rightX1,16,rightX2,18,L.maxUp or "MAX +", colors.purple, function() cfg.storageMax = utils.clamp(cfg.storageMax+5,cfg.storageMin+5,100) end)
-
-  if state.showOptions then
-    drawOptionsMenu()
-    return
-  end
 
   writeAt(mon, panelX1,20,string.rep("-", panelX2-panelX1+1), colors.gray)
   writeAt(mon, leftX1,21,L.reactor or "REAKTOR", colors.yellow)
@@ -171,14 +210,44 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
     if t then t.enabled = not t.enabled; if not t.enabled then turbines.setFlow(t.p,0); turbines.setInductor(t.p,false); turbines.setActive(t.p,false) end end
   end)
 
-  addButton("flowDown", rightX1,27,rightX2,29,L.flowDown or "-FLOW", manualColor(colors.gray), function()
-    if manualBlocked() then return end
-    local t = state.turbines[state.selectedTurbine]; if t then turbines.setFlow(t.p, turbines.getFlow(t.p)-25) end
+  addButton("flowDown", rightX1,27,rightX2,29,L.flowDown or "-FLOW", cfg.auto and colors.cyan or colors.gray, function()
+    local t = state.turbines[state.selectedTurbine]
+    if not t then return end
+
+    if cfg.auto then
+      local calibrated = getTurbineCalibration(cfg, t)
+      if calibrated then
+        setTurbineCalibration(cfg, t, math.max(0, calibrated - 1))
+        state.configDirty = true
+        state.statusLine = "Kal Flow T" .. tostring(state.selectedTurbine) .. ": " .. tostring(math.max(0, calibrated - 1)) .. " mB/t"
+      else
+        state.statusLine = "Turbine nicht kalibriert"
+      end
+      return
+    end
+
+    local tObj = t.p
+    turbines.setFlow(tObj, turbines.getFlow(tObj)-25)
   end)
 
-  addButton("flowUp", rightX1,31,rightX2,33,L.flowUp or "+FLOW", manualColor(colors.gray), function()
-    if manualBlocked() then return end
-    local t = state.turbines[state.selectedTurbine]; if t then turbines.setFlow(t.p, turbines.getFlow(t.p)+25) end
+  addButton("flowUp", rightX1,31,rightX2,33,L.flowUp or "+FLOW", cfg.auto and colors.cyan or colors.gray, function()
+    local t = state.turbines[state.selectedTurbine]
+    if not t then return end
+
+    if cfg.auto then
+      local calibrated = getTurbineCalibration(cfg, t)
+      if calibrated then
+        setTurbineCalibration(cfg, t, calibrated + 1)
+        state.configDirty = true
+        state.statusLine = "Kal Flow T" .. tostring(state.selectedTurbine) .. ": " .. tostring(calibrated + 1) .. " mB/t"
+      else
+        state.statusLine = "Turbine nicht kalibriert"
+      end
+      return
+    end
+
+    local tObj = t.p
+    turbines.setFlow(tObj, turbines.getFlow(tObj)+25)
   end)
 
   addButton("turbDown", smallRightA,35,smallRightB,37,"^", colors.blue, function()
@@ -295,8 +364,14 @@ function M.draw(state, cfg, saveFn, rescanFn, L, languageFn, updateFn)
   local lastTurbine = math.min(#state.turbines, firstTurbine+turbinesPerPage-1)
 
   writeAt(mon,2,29,(L.turbines or "Turbinen")..": "..#state.turbines.." | "..(L.selected or "Auswahl")..": T"..state.selectedTurbine.." | "..(L.page or "Seite").." "..state.turbinePage.."/"..totalPages,colors.yellow)
-  writeAt(mon,2,30,"Nr",colors.gray); writeAt(mon,9,30,L.status or "Status",colors.gray); writeAt(mon,19,30,"RPM",colors.gray); writeAt(mon,28,30,"mB/t",colors.gray); writeAt(mon,38,30,"RF/t",colors.gray); writeAt(mon,48,30,"mB/RF",colors.gray)
-  writeAt(mon,2,31,string.rep("-",54),colors.gray)
+  writeAt(mon,2,30,"Nr",colors.gray)
+  writeAt(mon,8,30,L.status or "Status",colors.gray)
+  writeAt(mon,18,30,"RPM",colors.gray)
+  writeAt(mon,27,30,"Flow",colors.gray)
+  writeAt(mon,36,30,"Kal.",colors.gray)
+  writeAt(mon,45,30,"RF/t",colors.gray)
+  writeAt(mon,54,30,"mB/RF",colors.gray)
+  writeAt(mon,2,31,string.rep("-",58),colors.gray)
   y=32
   for i=firstTurbine,lastTurbine do
     local e=state.turbines[i]
@@ -320,12 +395,19 @@ function M.draw(state, cfg, saveFn, rescanFn, L, languageFn, updateFn)
       end
     end
 
+    local calFlow = getTurbineCalibration(cfg, e)
+    local calText = "---"
+    if calFlow then
+      calText = tostring(math.floor(calFlow))
+    end
+
     writeAt(mon,2,y,(i==state.selectedTurbine and ">" or " ").."T"..i, i==state.selectedTurbine and colors.lime or colors.yellow)
-    writeAt(mon,9,y,utils.padRight(tStatus,6), tStatusColor)
-    writeAt(mon,19,y,utils.padLeft(math.floor(rpm),5),rpmColor)
-    writeAt(mon,28,y,utils.padLeft(math.floor(steam),6),colors.orange)
-    writeAt(mon,38,y,utils.padLeft(utils.formatShort(rf),8),colors.lime)
-    writeAt(mon,48,y,utils.padLeft(string.format("%.4f",eff),7),colors.cyan)
+    writeAt(mon,8,y,utils.padRight(tStatus,6), tStatusColor)
+    writeAt(mon,18,y,utils.padLeft(math.floor(rpm),5),rpmColor)
+    writeAt(mon,27,y,utils.padLeft(math.floor(turbines.getFlow(e.p)),6),colors.orange)
+    writeAt(mon,36,y,utils.padLeft(calText,6),calFlow and colors.cyan or colors.gray)
+    writeAt(mon,45,y,utils.padLeft(utils.formatShort(rf),7),colors.lime)
+    writeAt(mon,54,y,utils.padLeft(string.format("%.4f",eff),7),colors.cyan)
     y=y+1
   end
 

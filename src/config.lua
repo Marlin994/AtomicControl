@@ -3,7 +3,7 @@ local M = {}
 M.FILE = "reactor_turbine_controller.cfg"
 
 local defaults = {
-  version = 6,
+  version = 5,
   language = "de",
   languageSelected = false,
   autostartAsked = false,
@@ -57,9 +57,7 @@ function M.load()
   if type(cfg.turbines) ~= "table" then cfg.turbines = {} end
   if type(cfg.turbineCalibrations) ~= "table" then cfg.turbineCalibrations = {} end
   if cfg.language ~= "de" and cfg.language ~= "en" then cfg.language = "de" end
-
-  -- ECO was removed for now. Existing configs are migrated to NORMAL.
-  if cfg.operationMode ~= "NORMAL" and cfg.operationMode ~= "CYANITE" then
+  if cfg.operationMode ~= "ECO" and cfg.operationMode ~= "NORMAL" and cfg.operationMode ~= "CYANITE" then
     cfg.operationMode = "NORMAL"
   end
 
@@ -80,7 +78,6 @@ function M.save(cfg, state)
     for _, t in ipairs(state.turbines or {}) do
       if t.name then cfg.turbines[t.name] = t.enabled end
     end
-
     cfg.selectedReactor = state.selectedReactor or cfg.selectedReactor
     cfg.selectedTurbine = state.selectedTurbine or cfg.selectedTurbine
     cfg.reactorPage = state.reactorPage or cfg.reactorPage

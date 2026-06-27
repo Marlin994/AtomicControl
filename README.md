@@ -23,7 +23,7 @@ It automatically manages complete power plants consisting of:
 - Turbine calibration for stable 1800 RPM operation
 - Automatic turbine RPM regulation
 - NORMAL / CYANITE operating modes
-- Energy storage management
+- Automatic energy storage management
 - Reactor load balancing
 - Alarm system
 - Current steam production display

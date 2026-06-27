@@ -139,7 +139,35 @@ local function rescan()
   state.selectedTurbine = math.max(1, math.min(state.selectedTurbine or 1, math.max(#state.turbines,1)))
 end
 
+local function drawUpdateScreen()
+  if state.monitor then
+    local mon = state.monitor
+    local w, h = mon.getSize()
+
+    mon.setTextScale(0.5)
+    mon.setBackgroundColor(colors.red)
+    mon.setTextColor(colors.white)
+    mon.clear()
+
+    local lines = {
+      "AtomicControl",
+      "",
+      "Updating...",
+      "Please wait..."
+    }
+
+    local startY = math.floor((h - #lines) / 2) + 1
+
+    for i, line in ipairs(lines) do
+      mon.setCursorPos(math.max(1, math.floor((w - #line) / 2) + 1), startY + i - 1)
+      mon.write(line)
+    end
+  end
+end
+
 local function runUpdate()
+  drawUpdateScreen()
+
   term.setBackgroundColor(colors.black)
   term.setTextColor(colors.white)
   term.clear()
@@ -159,7 +187,19 @@ local function runUpdate()
   if not ok or not fs.exists(tmp) then
     print("")
     print("Update download failed.")
-    sleep(2)
+
+    if state.monitor then
+      local mon = state.monitor
+      local w, h = mon.getSize()
+      mon.setBackgroundColor(colors.red)
+      mon.setTextColor(colors.white)
+      mon.clear()
+      local msg = "UPDATE FAILED"
+      mon.setCursorPos(math.max(1, math.floor((w - #msg) / 2) + 1), math.floor(h / 2))
+      mon.write(msg)
+    end
+
+    sleep(3)
     return
   end
 
@@ -167,6 +207,7 @@ local function runUpdate()
 
   if fs.exists(tmp) then fs.delete(tmp) end
 end
+
 
 local function toggleLanguage()
   cfg.language = (cfg.language == "de") and "en" or "de"

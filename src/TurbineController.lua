@@ -30,9 +30,36 @@ function M.getCalibration(cfg, entry)
   if not cfg or not entry or not entry.name then return nil end
   cfg.turbineCalibrations = cfg.turbineCalibrations or {}
 
-  local v = cfg.turbineCalibrations[entry.name]
-  if type(v) == "table" then return tonumber(v.flow) end
-  return tonumber(v)
+  local value = cfg.turbineCalibrations[entry.name]
+
+  if type(value) == "table" then
+    return tonumber(value.flow)
+  end
+
+  return tonumber(value)
+end
+
+local function getIdleFlow(cfg, entry)
+  if not cfg or not entry or not entry.name then return nil end
+  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+
+  local value = cfg.turbineCalibrations[entry.name]
+
+  if type(value) == "table" then
+    if tonumber(value.idleFlow) then
+      return tonumber(value.idleFlow)
+    end
+
+    if tonumber(value.flow) then
+      return utils.clamp(math.floor(tonumber(value.flow) * 0.10), 25, 250)
+    end
+  end
+
+  if tonumber(value) then
+    return utils.clamp(math.floor(tonumber(value) * 0.10), 25, 250)
+  end
+
+  return nil
 end
 
 function M.setCalibration(cfg, entry, flow)
@@ -136,22 +163,6 @@ function M.runCalibration(state, cfg)
   return true
 end
 
-local function getIdleFlow(cfg, entry)
-  if not cfg or not entry or not entry.name then return nil end
-  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
-
-  local v = cfg.turbineCalibrations[entry.name]
-  if type(v) == "table" then
-    return tonumber(v.idleFlow) or (tonumber(v.flow) and utils.clamp(math.floor(tonumber(v.flow) * 0.10), 25, 250))
-  end
-
-  if tonumber(v) then
-    return utils.clamp(math.floor(tonumber(v) * 0.10), 25, 250)
-  end
-
-  return nil
-end
-
 function M.update(state, cfg, storageFull)
   local needsSteam = false
   local cyanite = cfg.operationMode == "CYANITE"
@@ -174,7 +185,7 @@ function M.update(state, cfg, storageFull)
 
       if storageFull and not cyanite then
         -- Storage full:
-        -- Stop generation, but keep the rotor alive using a small idle flow.
+        -- Stop generation, but keep the rotor ready using a small idle flow.
         turbines.setInductor(t, false)
 
         local idle = getIdleFlow(cfg, entry) or 0
@@ -190,8 +201,7 @@ function M.update(state, cfg, storageFull)
         end
 
       else
-        -- If a calibration exists and we are far away from it, move quickly
-        -- toward the calibrated baseline before fine RPM trimming.
+        -- If calibrated, quickly move toward the nominal baseline if we are far away.
         if calibrated and calibrated > 0 and math.abs(calibrated - flow) > 100 then
           if calibrated > flow then
             turbines.setFlow(t, flow + M.FLOW_STEP_FAR)

@@ -1,5 +1,6 @@
 return {
   title = "ATOMICCONTROL",
+
   on = "ON",
   off = "OFF",
   free = "FREE",
@@ -11,6 +12,7 @@ return {
   system = "System",
   mode = "Mode",
   manual = "MANUAL",
+
   storage = "Storage",
   minMax = "Min/Max",
   steam = "Steam",
@@ -29,19 +31,26 @@ return {
   page = "Page",
   status = "Status",
   rods = "Rods",
+
   rfTurbines = "RF Turbines",
   rfPassive = "RF Passive",
   rfTotal = "RF Total",
 
   general = "GENERAL",
-  enabledToggle = "ON/OFF",
+  software = "Software",
   option = "OPTION",
   options = "OPTIONS",
-  language = "LANG",
+  language = "LANGUAGE",
   update = "UPDATE",
-  back = "BACK",
   rescan = "RESCAN",
+  back = "BACK",
 
+  calibration = "Calibration",
+  calibrateTurbine = "CAL T",
+  calibrateCoarse = "COARSE",
+  calibrateFine = "FINE",
+
+  enabledToggle = "ON/OFF",
   minDown = "MIN -",
   minUp = "MIN +",
   maxDown = "MAX -",
@@ -92,6 +101,5 @@ return {
   alarmNoRF = " no RF",
   alarmActiveNoTurbine = "Active R%d without turbine",
   alarmNoSteam = "R%d no steam",
-  alarmAllReactorsOff = "All reactors OFF",
-  calibrateTurbine = "CAL T"
+  alarmAllReactorsOff = "All reactors OFF"
 }

@@ -21,7 +21,7 @@ local files = {
   "passivereactorcontroller.lua",
   "startup.lua",
   "lang/de.lua",
-  "lang/en.lua"
+  "lang/en.lua",
 }
 
 local function ensureDir(path)

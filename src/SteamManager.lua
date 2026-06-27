@@ -3,16 +3,20 @@ local reactors = require("reactors")
 
 local M = {}
 
--- NORMAL mode targets minimal oversupply.
+-- NORMAL mode aims for only a small steam surplus.
 M.RESERVE_NORMAL = 1.03
 
 local function getCalibration(cfg, entry)
   if not cfg or not entry or not entry.name then return nil end
   cfg.turbineCalibrations = cfg.turbineCalibrations or {}
 
-  local v = cfg.turbineCalibrations[entry.name]
-  if type(v) == "table" then return tonumber(v.flow) end
-  return tonumber(v)
+  local value = cfg.turbineCalibrations[entry.name]
+
+  if type(value) == "table" then
+    return tonumber(value.flow)
+  end
+
+  return tonumber(value)
 end
 
 function M.getDemand(state, cfg)

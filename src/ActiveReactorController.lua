@@ -4,7 +4,7 @@ local TurbineController = require("turbinecontroller")
 
 local M = {}
 
--- NORMAL mode:
+-- NORMAL:
 -- target = turbine steam demand * 1.03
 -- deadband = +/- 40 mB/t
 M.DEADBAND = 40
@@ -66,7 +66,6 @@ function M.update(state, cfg, storageHigh, storageLow, steamPct, steamOk, turbin
 
   local wanted = 1
 
-  -- Add more active reactors only if one reactor cannot keep up.
   if target > 0 and production > 0 and production < target * 0.75 then
     wanted = math.min(#list, 2)
   end
@@ -111,7 +110,6 @@ function M.update(state, cfg, storageHigh, storageLow, steamPct, steamOk, turbin
         reactors.setRods(r, rod + step)
 
       else
-        -- Close enough: hold.
         reactors.setRods(r, rod)
       end
     else
