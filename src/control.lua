@@ -32,7 +32,14 @@ M.FLOW_STEP_ULTRA = 1     -- 0-25 RPM away
 M.CAL_UNDER_RPM = 1790
 M.CAL_OVER_RPM = 1810
 M.CAL_TIMEOUT_TICKS = 1200
-M.CAL_FLOW_OFFSET = -2
+M.CAL_FLOW_OFFSET = -5
+
+-- After the crossing search we validate the candidate flow as a fixed value.
+-- This catches rotor inertia overshoot, e.g. calibrated flow resulting in 1875 RPM.
+M.CAL_VALIDATE_TICKS = 80
+M.CAL_TARGET_LOW = 1785
+M.CAL_TARGET_HIGH = 1815
+M.CAL_MAX_VALIDATE_ROUNDS = 8
 
 -- Steam target
 M.STEAM_SURPLUS_FACTOR = 1.12
@@ -189,7 +196,89 @@ local function controlCalibration(state, cfg, L)
     end
   end
 
-  -- Track best known point close to 1800. Used as fallback.
+  -- Phase 2: validate a fixed candidate flow.
+  -- This is the important part against inertia overshoot:
+  -- candidate flow is held constant for a while, then corrected.
+  if cal.phase == "validate" then
+    turbines.setInductor(t, true)
+    turbines.setFlow(t, cal.candidateFlow or flow)
+
+    cal.validateTicks = (cal.validateTicks or 0) + 1
+    cal.validateRpmSum = (cal.validateRpmSum or 0) + rpm
+    cal.validateRpmCount = (cal.validateRpmCount or 0) + 1
+
+    if cal.validateTicks >= M.CAL_VALIDATE_TICKS then
+      local avgRpm = cal.validateRpmSum / math.max(1, cal.validateRpmCount)
+      local candidate = cal.candidateFlow or flow
+      cal.validateRounds = (cal.validateRounds or 0) + 1
+
+      if avgRpm >= M.CAL_TARGET_LOW and avgRpm <= M.CAL_TARGET_HIGH then
+        setCalibration(cfg, entry, candidate)
+        turbines.setFlow(t, candidate)
+        turbines.setInductor(t, true)
+
+        state.configDirty = true
+        state.calibration = nil
+        state.statusLine =
+          "T" .. tostring(cal.turbineIndex) ..
+          " kalibriert: " .. tostring(math.floor(candidate)) ..
+          " mB/t bei " .. tostring(math.floor(avgRpm)) .. " RPM"
+        return true
+      end
+
+      -- Correct candidate and validate again.
+      -- If RPM is too high, flow is too high.
+      -- Use a proportional-ish correction, but keep it bounded.
+      local error = avgRpm - M.TARGET_RPM
+      local correction = 1
+
+      if math.abs(error) > 100 then
+        correction = 20
+      elseif math.abs(error) > 60 then
+        correction = 10
+      elseif math.abs(error) > 30 then
+        correction = 5
+      else
+        correction = 2
+      end
+
+      if error > 0 then
+        candidate = candidate - correction
+      else
+        candidate = candidate + correction
+      end
+
+      if candidate < 0 then candidate = 0 end
+
+      cal.candidateFlow = candidate
+      cal.validateTicks = 0
+      cal.validateRpmSum = 0
+      cal.validateRpmCount = 0
+
+      if cal.validateRounds >= M.CAL_MAX_VALIDATE_ROUNDS then
+        setCalibration(cfg, entry, candidate)
+        turbines.setFlow(t, candidate)
+        turbines.setInductor(t, true)
+
+        state.configDirty = true
+        state.calibration = nil
+        state.statusLine =
+          "T" .. tostring(cal.turbineIndex) ..
+          " kalibriert best: " .. tostring(math.floor(candidate)) ..
+          " mB/t"
+        return true
+      end
+    end
+
+    state.statusLine =
+      "Pruefe T" .. tostring(cal.turbineIndex) ..
+      ": " .. tostring(math.floor(rpm)) ..
+      " RPM @ " .. tostring(math.floor(cal.candidateFlow or flow)) .. " mB/t"
+
+    return true
+  end
+
+  -- Phase 1: crossing search.
   local rpmError = math.abs((rpm or 0) - M.TARGET_RPM)
   if flow > 0 then
     if not cal.bestError or rpmError < cal.bestError then
@@ -199,9 +288,6 @@ local function controlCalibration(state, cfg, L)
     end
   end
 
-  -- Store the last point below target and the first point above target.
-  -- The crossing gives a much better calibration than trying to catch
-  -- one perfectly stable moment on a slow rotor.
   if rpm <= M.TARGET_RPM then
     cal.underFlow = flow
     cal.underRpm = rpm
@@ -210,22 +296,22 @@ local function controlCalibration(state, cfg, L)
     cal.overRpm = rpm
   end
 
-  -- If we have both sides of the crossing, save the midpoint.
+  -- If we have both sides of the crossing, create candidate and validate it.
   if cal.underFlow and cal.overFlow then
-    local finalFlow = math.floor(((cal.underFlow + cal.overFlow) / 2) + M.CAL_FLOW_OFFSET)
-    if finalFlow < 0 then finalFlow = 0 end
+    local candidate = math.floor(((cal.underFlow + cal.overFlow) / 2) + M.CAL_FLOW_OFFSET)
+    if candidate < 0 then candidate = 0 end
 
-    setCalibration(cfg, entry, finalFlow)
-    turbines.setFlow(t, finalFlow)
+    cal.phase = "validate"
+    cal.candidateFlow = candidate
+    cal.validateTicks = 0
+    cal.validateRpmSum = 0
+    cal.validateRpmCount = 0
+    cal.validateRounds = 0
+
+    turbines.setFlow(t, candidate)
     turbines.setInductor(t, true)
 
-    state.configDirty = true
-    state.calibration = nil
-    state.statusLine =
-      "T" .. tostring(cal.turbineIndex) ..
-      " kalibriert: " .. tostring(finalFlow) ..
-      " mB/t (" .. math.floor(cal.underRpm or 0) ..
-      "/" .. math.floor(cal.overRpm or 0) .. " RPM)"
+    state.statusLine = "Teste Kal T" .. tostring(cal.turbineIndex) .. ": " .. tostring(candidate) .. " mB/t"
     return true
   end
 
@@ -237,7 +323,6 @@ local function controlCalibration(state, cfg, L)
     turbines.setFlow(t, flow + math.max(step, M.FLOW_STEP_MED))
 
   elseif rpm < M.RPM_REENGAGE then
-    -- Keep generator disengaged until 1750 so the rotor can spin up.
     turbines.setInductor(t, false)
     turbines.setFlow(t, flow + step)
 
@@ -247,8 +332,6 @@ local function controlCalibration(state, cfg, L)
     if rpm < M.TARGET_RPM then
       turbines.setFlow(t, flow + step)
     elseif rpm > M.TARGET_RPM then
-      -- We normally should already have overFlow here.
-      -- If inertia skipped the crossing logic for some reason, reduce flow.
       turbines.setFlow(t, flow - math.max(1, step))
     end
   end
@@ -256,26 +339,28 @@ local function controlCalibration(state, cfg, L)
   cal.ticks = cal.ticks + 1
 
   if cal.ticks >= M.CAL_TIMEOUT_TICKS then
-    -- Fallback: save best seen value if it was close enough.
+    -- Fallback: validate best seen value instead of saving it immediately.
     if cal.bestFlow and cal.bestError and cal.bestError <= 100 then
-      local finalFlow = math.floor(cal.bestFlow + M.CAL_FLOW_OFFSET)
-      if finalFlow < 0 then finalFlow = 0 end
+      local candidate = math.floor(cal.bestFlow + M.CAL_FLOW_OFFSET)
+      if candidate < 0 then candidate = 0 end
 
-      setCalibration(cfg, entry, finalFlow)
-      turbines.setFlow(t, finalFlow)
+      cal.phase = "validate"
+      cal.candidateFlow = candidate
+      cal.validateTicks = 0
+      cal.validateRpmSum = 0
+      cal.validateRpmCount = 0
+      cal.validateRounds = 0
+
+      turbines.setFlow(t, candidate)
       turbines.setInductor(t, true)
 
-      state.configDirty = true
-      state.statusLine =
-        "T" .. tostring(cal.turbineIndex) ..
-        " bestes Ergebnis: " .. tostring(finalFlow) ..
-        " mB/t bei " .. tostring(math.floor(cal.bestRpm or 0)) .. " RPM"
+      state.statusLine = "Timeout: teste bestes Ergebnis " .. tostring(candidate) .. " mB/t"
+      return true
     else
       state.statusLine = "Kalibrierung Timeout"
+      state.calibration = nil
+      return true
     end
-
-    state.calibration = nil
-    return true
   end
 
   local underText = "---"
