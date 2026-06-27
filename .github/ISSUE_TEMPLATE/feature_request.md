@@ -9,5 +9,3 @@ assignees: ""
 ## Feature idea
 
 ## Why would this be useful?
-
-## Additional context

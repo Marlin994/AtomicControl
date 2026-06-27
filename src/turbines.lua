@@ -53,8 +53,6 @@ function M.getInductor(t)
   v = utils.safe(function() return t.isInductorEngaged() end, nil)
   if v ~= nil then return v end
 
-  -- Fallback: wenn die API keinen Status liefert, nehmen wir "true" an,
-  -- damit bestehende Turbinen nicht faelschlich als FREI erscheinen.
   return true
 end
 

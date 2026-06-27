@@ -3,18 +3,22 @@ local M = {}
 M.FILE = "reactor_turbine_controller.cfg"
 
 local defaults = {
-  version = 3,
+  version = 4,
   language = "de",
+  languageSelected = false,
   autostartAsked = false,
+
   storageMin = 30,
   storageMax = 90,
   auto = true,
   enabled = true,
   operationMode = "ECO",
+
   selectedReactor = 1,
   selectedTurbine = 1,
   reactorPage = 1,
   turbinePage = 1,
+
   reactors = {},
   turbines = {}
 }
@@ -45,13 +49,12 @@ function M.load()
   end)
 
   if ok and type(loaded) == "table" then
-    for k, v in pairs(loaded) do
-      cfg[k] = v
-    end
+    for k, v in pairs(loaded) do cfg[k] = v end
   end
 
   if type(cfg.reactors) ~= "table" then cfg.reactors = {} end
   if type(cfg.turbines) ~= "table" then cfg.turbines = {} end
+  if cfg.language ~= "de" and cfg.language ~= "en" then cfg.language = "de" end
   if cfg.operationMode ~= "ECO" and cfg.operationMode ~= "NORMAL" and cfg.operationMode ~= "CYANITE" then
     cfg.operationMode = "ECO"
   end
@@ -67,10 +70,10 @@ function M.save(cfg, state)
 
   if state then
     for _, r in ipairs(state.reactors or {}) do
-      cfg.reactors[r.name] = r.enabled
+      if r.name then cfg.reactors[r.name] = r.enabled end
     end
     for _, t in ipairs(state.turbines or {}) do
-      cfg.turbines[t.name] = t.enabled
+      if t.name then cfg.turbines[t.name] = t.enabled end
     end
     cfg.selectedReactor = state.selectedReactor or cfg.selectedReactor
     cfg.selectedTurbine = state.selectedTurbine or cfg.selectedTurbine

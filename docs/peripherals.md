@@ -1,18 +1,8 @@
 # Peripherals
 
-AtomicControl scans connected peripherals automatically.
+AtomicControl scans connected peripherals automatically:
 
-Supported device categories:
-
-- Active reactors
-- Passive reactors
+- Reactors
 - Turbines
 - Energy storage
 - Monitor
-
-Detection is based on available peripheral methods, such as:
-
-- `getControlRodLevel`
-- `getRotorSpeed`
-- `getEnergyStored`
-- `getMaxEnergyStored`

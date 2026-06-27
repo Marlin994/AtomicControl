@@ -1,11 +1,18 @@
 # Changelog
 
+## 1.0.0
+
+- Clean full repository release.
+- Added options menu.
+- Added language selection before autostart.
+- Added update action from options menu.
+- Added German and English language files.
+- Added root `install.lua` and `update.lua`.
+
 ## 0.2.0
 
-- Renamed project to AtomicControl.
+- Project renamed to AtomicControl.
 - Added language file structure.
-- Added German and English language files.
-- Added modular GitHub-ready project layout.
 
 ## 0.1.0
 

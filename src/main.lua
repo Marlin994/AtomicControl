@@ -31,7 +31,8 @@ local state = {
   storageOutRF = 0,
   storageNetRF = 0,
   statusLine = L.statusInitializing or "Initialisiere...",
-  alarms = {}
+  alarms = {},
+  showOptions = false
 }
 
 local function currentProgramPath()
@@ -50,9 +51,7 @@ local function save()
   config.save(cfg, state)
 end
 
-
 local function askLanguage()
-  -- First-run language selection happens before autostart setup.
   if cfg.languageSelected and not forceSetup then
     L = lang.load(cfg.language or "de")
     return
@@ -69,6 +68,7 @@ local function askLanguage()
     print("Setup mode / Setup-Modus")
     print("")
   end
+
   print("Select language / Sprache waehlen")
   print("")
   print("[1] Deutsch")
@@ -109,7 +109,7 @@ local function askAutostart()
   term.clear()
   term.setCursorPos(1,1)
   print(L.setupTitle or "AtomicControl")
-  print("---------------------------")
+  print(L.setupLine or "-------------")
   if forceSetup then print((L.setupModeStarted or "Setup-Modus gestartet.") .. "\n") end
   print(L.setupAsk1 or "Soll dieses Programm beim Start")
   print(L.setupAsk2 or "automatisch geladen werden?")
@@ -122,7 +122,7 @@ local function askAutostart()
     local ok = pcall(function()
       if fs.exists("startup.lua") then fs.delete("startup.lua") end
       local h = fs.open("startup.lua", "w")
-      h.writeLine('shell.run("' .. running .. '")')
+      h.writeLine('shell.run("main")')
       h.close()
     end)
     print(ok and (L.setupDone or "Autostart eingerichtet.") or (L.setupFailed or "Autostart fehlgeschlagen."))
@@ -138,7 +138,6 @@ local function rescan()
   state.selectedReactor = math.max(1, math.min(state.selectedReactor or 1, math.max(#state.reactors,1)))
   state.selectedTurbine = math.max(1, math.min(state.selectedTurbine or 1, math.max(#state.turbines,1)))
 end
-
 
 local function runUpdate()
   term.setBackgroundColor(colors.black)
@@ -169,6 +168,13 @@ local function runUpdate()
   if fs.exists(tmp) then fs.delete(tmp) end
 end
 
+local function toggleLanguage()
+  cfg.language = (cfg.language == "de") and "en" or "de"
+  cfg.languageSelected = true
+  L = lang.load(cfg.language or "de")
+  state.statusLine = (cfg.language == "de") and "Sprache: Deutsch" or "Language: English"
+  save()
+end
 
 askLanguage()
 askAutostart()
@@ -191,13 +197,7 @@ local function mainLoop()
     end
     control.update(state, cfg, L)
     alarms.evaluate(state, cfg, L)
-    buttons = ui.draw(state, cfg, save, rescan, L, function()
-      cfg.language = (cfg.language == "de") and "en" or "de"
-      cfg.languageSelected = true
-      L = lang.load(cfg.language or "de")
-      state.statusLine = (cfg.language == "de") and "Sprache: Deutsch" or "Language: English"
-      save()
-    end, runUpdate)
+    buttons = ui.draw(state, cfg, save, rescan, L, toggleLanguage, runUpdate)
     sleep(0.5)
   end
 end
@@ -207,13 +207,7 @@ local function touchLoop()
     local _, _, x, y = os.pullEvent("monitor_touch")
     if ui.handleTouch(buttons, x, y) then
       save()
-      buttons = ui.draw(state, cfg, save, rescan, L, function()
-      cfg.language = (cfg.language == "de") and "en" or "de"
-      cfg.languageSelected = true
-      L = lang.load(cfg.language or "de")
-      state.statusLine = (cfg.language == "de") and "Sprache: Deutsch" or "Language: English"
-      save()
-    end, runUpdate)
+      buttons = ui.draw(state, cfg, save, rescan, L, toggleLanguage, runUpdate)
     end
   end
 end

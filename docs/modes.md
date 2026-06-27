@@ -2,12 +2,12 @@
 
 ## ECO
 
-Focuses on fuel efficiency and conservative reactor usage.
+Fuel efficient operation.
 
 ## NORMAL
 
-Balances responsiveness and fuel consumption.
+Balanced operation.
 
 ## CYANITE
 
-Focuses on burning fuel to produce Cyanite while still regulating turbines around 1800 RPM.
+Burns fuel for Cyanite production while regulating turbines around 1800 RPM.

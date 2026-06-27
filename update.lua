@@ -1,5 +1,5 @@
 -- AtomicControl Updater
--- Downloads the latest installer from GitHub and runs it.
+-- Downloads and runs the current installer.
 
 local INSTALL_URL = "https://raw.githubusercontent.com/Marlin994/AtomicControl/main/install.lua"
 local TEMP_FILE = "atomiccontrol_update_install.lua"

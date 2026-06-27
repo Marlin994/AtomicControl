@@ -1,6 +1,5 @@
 # ComputerCraft runtime/config
 reactor_turbine_controller.cfg
-startup.lua
 
 # OS/editor
 .DS_Store

@@ -1,59 +1,63 @@
+-- AtomicControl Installer
+-- https://github.com/Marlin994/AtomicControl
+
 local BASE = "https://raw.githubusercontent.com/Marlin994/AtomicControl/main/src/"
 
 local files = {
-    "main.lua",
-    "config.lua",
-    "control.lua",
-    "devices.lua",
-    "reactors.lua",
-    "turbines.lua",
-    "energy.lua",
-    "alarms.lua",
-    "ui.lua",
-    "utils.lua",
-    "lang.lua",
-    "lang/de.lua",
-    "lang/en.lua"
+  "main.lua",
+  "config.lua",
+  "control.lua",
+  "devices.lua",
+  "reactors.lua",
+  "turbines.lua",
+  "energy.lua",
+  "alarms.lua",
+  "ui.lua",
+  "utils.lua",
+  "lang.lua",
+  "startup.lua",
+  "lang/de.lua",
+  "lang/en.lua"
 }
 
+local function ensureDir(path)
+  local dir = fs.getDir(path)
+  if dir ~= "" and not fs.exists(dir) then
+    fs.makeDir(dir)
+  end
+end
+
 term.clear()
-term.setCursorPos(1,1)
+term.setCursorPos(1, 1)
 
 print("AtomicControl Installer")
 print("-----------------------")
-print()
+print("")
 
 for _, file in ipairs(files) do
+  ensureDir(file)
 
-    local dir = fs.getDir(file)
-    if dir ~= "" and not fs.exists(dir) then
-        fs.makeDir(dir)
-    end
+  if fs.exists(file) then
+    fs.delete(file)
+  end
 
-    if fs.exists(file) then
-        fs.delete(file)
-    end
+  write("Downloading " .. file .. " ... ")
 
-    write("Downloading "..file.." ... ")
+  local ok = shell.run("wget", BASE .. file, file)
 
-    local ok = shell.run(
-        "wget",
-        BASE .. file,
-        file
-    )
-
-    if ok then
-        print("OK")
-    else
-        print("FAILED")
-        error("Installation aborted.")
-    end
+  if ok and fs.exists(file) then
+    print("OK")
+  else
+    print("FAILED")
+    print("")
+    print("Installation aborted.")
+    return
+  end
 end
 
-print()
-print("Installation complete!")
-print()
+print("")
+print("Installation complete.")
 print("Starting setup...")
 sleep(1)
 
-shell.run("main","setup")
+shell.run("main", "setup")

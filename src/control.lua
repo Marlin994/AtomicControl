@@ -89,16 +89,11 @@ local function distributeActiveReactors(state, cfg, storageLow, storageHigh, ste
     return
   end
 
-  -- Lastverteilung:
-  -- ECO: erst einen Reaktor nutzen; weitere erst bei anhaltendem Dampf-/Speichermangel.
-  -- NORMAL: schneller weitere Reaktoren zuschalten.
   local wanted = 1
   if storageLow or turbinesNeedSteam or (steamOk and steamPct < 0.30) then
     wanted = cfg.operationMode == "NORMAL" and math.min(#list, 2) or 1
   end
-  if steamOk and steamPct < 0.15 then
-    wanted = #list
-  end
+  if steamOk and steamPct < 0.15 then wanted = #list end
 
   for i, e in ipairs(list) do
     local r = e.r
@@ -145,8 +140,6 @@ local function distributePassiveReactors(state, cfg, storageLow, storageHigh, st
     return
   end
 
-  -- Lastverteilung passiv:
-  -- Erst ein Reaktor, weitere nur wenn der Speicher leer laeuft.
   local wanted = 1
   if storageLow and cfg.operationMode == "NORMAL" then wanted = math.min(#list, 2) end
   if storageLow and (state.storageNetRF or 0) < -1000 then wanted = #list end
@@ -170,7 +163,9 @@ local function distributePassiveReactors(state, cfg, storageLow, storageHigh, st
   end
 end
 
-function M.update(state, cfg)
+function M.update(state, cfg, L)
+  L = L or {}
+
   if not state.enabled then
     for _, r in ipairs(state.reactors or {}) do reactors.setActive(r, false) end
     for _, t in ipairs(state.turbines or {}) do
@@ -178,12 +173,12 @@ function M.update(state, cfg)
       turbines.setInductor(t.p, false)
       turbines.setFlow(t.p, 0)
     end
-    state.statusLine = "Anlage ausgeschaltet"
+    state.statusLine = L.statusSystemOff or "Anlage ausgeschaltet"
     return
   end
 
   if not cfg.auto then
-    state.statusLine = "Manueller Modus"
+    state.statusLine = L.statusManualMode or "Manueller Modus"
     return
   end
 
@@ -201,11 +196,11 @@ function M.update(state, cfg)
   distributePassiveReactors(state, cfg, storageLow, storageHigh and cfg.operationMode ~= "CYANITE", storageMidHigh)
 
   if cfg.operationMode == "CYANITE" then
-    state.statusLine = "CYANITE: Fuel wird verbrannt, RPM geregelt"
+    state.statusLine = L.statusCyanite or "CYANITE: Fuel wird verbrannt, RPM geregelt"
   elseif cfg.operationMode == "NORMAL" then
-    state.statusLine = "NORMAL: Lastverteilung aktiv"
+    state.statusLine = L.statusNormal or "NORMAL: Lastverteilung aktiv"
   else
-    state.statusLine = "ECO: Lastverteilung aktiv"
+    state.statusLine = L.statusEco or "ECO: Lastverteilung aktiv"
   end
 end
 

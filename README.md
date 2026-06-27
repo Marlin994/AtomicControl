@@ -1,37 +1,37 @@
 # ⚛️ AtomicControl
 
-**AtomicControl** is an advanced reactor and turbine controller for **CC:Tweaked** and **Extreme/Bigger Reactors**.
+**AtomicControl** is an advanced reactor and turbine controller for **CC** and **Extreme/Bigger Reactors**.
 
 It automatically manages complete power plants consisting of:
 
-* ☢️ Active Reactors
-* ☢️ Passive Reactors
-* 🌪️ Multiple Turbines
-* 🔋 Energy Storage
-* ⚖️ Intelligent Load Balancing
-* 🚨 Alarm System
-* 📊 Live Touch Monitor Interface
-* 🌍 German & English language support
+- ☢️ Active Reactors
+- ☢️ Passive Reactors
+- 🌪️ Multiple Turbines
+- 🔋 Energy Storage
+- ⚖️ Intelligent Load Balancing
+- 🚨 Alarm System
+- 📊 Live Touch Monitor Interface
+- 🌍 German & English language support
 
 ---
 
 # Features
 
-* Automatic reactor control
-* Active & passive reactor support
-* Multiple turbine support
-* Automatic turbine RPM regulation
-* ECO / NORMAL / CYANITE operating modes
-* Automatic energy storage management
-* Reactor load balancing
-* Alarm system
-* Current steam production display
-* Multi-page touch interface
-* Automatic peripheral detection
-* Configuration is automatically saved
-* Autostart support
-* Modular architecture
-* Language system (German / English)
+- Automatic reactor control
+- Active & passive reactor support
+- Multiple turbine support
+- Automatic turbine RPM regulation
+- ECO / NORMAL / CYANITE operating modes
+- Automatic energy storage management
+- Reactor load balancing
+- Alarm system
+- Current steam production display
+- Multi-page touch interface
+- Automatic peripheral detection
+- Configuration is automatically saved
+- Autostart support
+- Modular architecture
+- Language system (German / English)
 
 ---
 
@@ -65,11 +65,11 @@ wget run https://raw.githubusercontent.com/Marlin994/AtomicControl/main/update.l
 
 # Requirements
 
-* Minecraft
-* CC:Tweaked
-* Extreme Reactors or Bigger Reactors
-* Advanced Monitor (recommended: 5×4)
-* Wired Modem Network
+- Minecraft
+- CC
+- Extreme Reactors or Bigger Reactors
+- Advanced Monitor (recommended 5x4)
+- Wired Modem Network
 
 ---
 
@@ -81,12 +81,6 @@ installer/
 docs/
 lang/
 ```
-
----
-
-# Screenshots
-
-*Coming soon...*
 
 ---
 
@@ -104,4 +98,4 @@ This project is licensed under the **MIT License**.
 
 ---
 
-Made with ❤️ for the CC:Tweaked community.
+Made with ❤️ for the CC community.

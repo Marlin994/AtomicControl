@@ -10,13 +10,9 @@ assignees: ""
 
 ## Steps to reproduce
 
-## Expected behavior
-
-## Screenshots
-
 ## Environment
 
 - Minecraft version:
 - Modpack:
-- CC:Tweaked version:
+- CC version:
 - Extreme/Bigger Reactors version:

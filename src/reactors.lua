@@ -105,8 +105,6 @@ function M.updateSteamProduction(r, updateSeconds)
     return
   end
 
-  -- Nur Naeherung: echte Produktion minus Turbinenverbrauch ist nicht sauber trennbar,
-  -- wenn gleichzeitig Dampf entnommen wird. Besser als 0, falls API keine Methode anbietet.
   local diff = stored - r.lastSteam
   r.lastSteam = stored
   if diff > 0 then

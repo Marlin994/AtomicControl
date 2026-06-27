@@ -11,6 +11,4 @@ Useful contribution areas:
 - Documentation
 - Installer improvements
 
-## Pull Requests
-
-Please keep changes focused and describe what was changed.
+Please keep pull requests focused and describe what was changed.

@@ -13,7 +13,8 @@ function M.clamp(v, a, b)
   return v
 end
 
-function M.boolText(v)
+function M.boolText(v, L)
+  if L then return v and L.on or L.off end
   return v and "AN" or "AUS"
 end
 
