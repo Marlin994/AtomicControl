@@ -3,7 +3,7 @@ local turbines = require("turbines")
 
 local M = {}
 
-M.ROD_POINTS = {100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0}
+M.ROD_POINTS = {100, 95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0}
 M.WARMUP_TICKS = 20
 M.SAMPLE_TICKS = 20
 M.TURBINE_CAL_FLOW = 2000
