@@ -16,6 +16,10 @@ M.ROD_STEP_ECO = 1
 M.ROD_STEP_NORMAL = 3
 M.ROD_STEP_FAST = 6
 
+-- Safety/efficiency floor for active reactors outside CYANITE.
+-- Prevents the controller from pulling rods fully to 0% on oversized reactors.
+M.ACTIVE_MIN_ROD = 10
+
 -- Flow steps by RPM distance
 M.FLOW_STEP_FAR = 25      -- more than 100 RPM away
 M.FLOW_STEP_MED = 10      -- 50-100 RPM away
@@ -369,26 +373,54 @@ local function setLaterReactorsIdle(list, startIndex)
   end
 end
 
+local function setActiveRodsLimited(r, level, cfg)
+  if cfg and cfg.operationMode == "CYANITE" then
+    reactors.setRods(r, level)
+  else
+    reactors.setRods(r, utils.clamp(level, M.ACTIVE_MIN_ROD, 100))
+  end
+end
+
 local function activeReactorNeedsMorePower(state, cfg, steamPct, steamOk, storageLow, turbinesNeedSteam)
   local demand = totalSteamDemand(state, cfg)
   local prod = totalSteamProduction(state)
   local lowestRpm = getLowestEnabledTurbineRPM(state)
 
+  -- Speicher leer hat Prioritaet.
   if storageLow then return true end
-  if turbinesNeedSteam then return true end
-  if lowestRpm > 0 and lowestRpm < 1780 then return true end
 
-  if demand > 0 then
-    if prod <= 0 then
-      if steamOk and steamPct < 0.75 then return true end
-    elseif prod < demand * M.STEAM_DEFICIT_FACTOR then
-      return true
-    end
+  -- Wenn der Dampfpuffer gut gefuellt ist, nicht weiter hochfahren.
+  -- Das verhindert, dass ein uebergrosser Reaktor komplett auf 0% Rods geht,
+  -- nur weil die Turbine beim Hochlauf noch unter Ziel-RPM liegt.
+  if steamOk and steamPct >= 0.55 then
+    return false
   end
 
-  if steamOk and steamPct < 0.35 then return true end
+  -- Turbine fordert Dampf nur dann vom Reaktor an, wenn der Puffer nicht
+  -- schon ausreichend gefuellt ist.
+  if turbinesNeedSteam and (not steamOk or steamPct < 0.45) then
+    return true
+  end
+
+  -- RPM unter Ziel ist nur dann ein Grund zum Hochfahren, wenn der Puffer
+  -- niedrig ist. Sonst ist es meist Rotortraegheit, nicht Dampfmangel.
+  if lowestRpm > 0 and lowestRpm < 1780 and (not steamOk or steamPct < 0.40) then
+    return true
+  end
+
+  -- Wenn echte Produktionswerte verfuegbar sind, kann auf Nachfrage geregelt werden.
+  if demand > 0 and prod > 0 and prod < demand * M.STEAM_DEFICIT_FACTOR then
+    return true
+  end
+
+  -- Fallback ohne brauchbare Produktionswerte.
+  if steamOk and steamPct < 0.30 then
+    return true
+  end
+
   return false
 end
+
 
 local function activeReactorShouldThrottle(state, cfg, steamPct, steamOk, storageMidHigh)
   local demand = totalSteamDemand(state, cfg)
@@ -396,13 +428,25 @@ local function activeReactorShouldThrottle(state, cfg, steamPct, steamOk, storag
   local lowestRpm = getLowestEnabledTurbineRPM(state)
 
   if storageMidHigh then return true end
-  if lowestRpm > 0 and lowestRpm < 1790 then return false end
 
-  if demand > 0 and prod > demand * M.STEAM_SURPLUS_FACTOR then return true end
-  if steamOk and steamPct > 0.75 then return true end
+  -- Bei gutem Dampfpuffer drosseln, auch wenn die Turbine noch leicht
+  -- unter 1800 liegt. Das verhindert Ueberproduktion bei grossen Reaktoren.
+  if steamOk and steamPct > 0.60 then
+    return true
+  end
+
+  -- Nur bei wirklich niedrigem RPM und niedrigem Puffer nicht drosseln.
+  if lowestRpm > 0 and lowestRpm < 1750 and (not steamOk or steamPct < 0.45) then
+    return false
+  end
+
+  if demand > 0 and prod > demand * M.STEAM_SURPLUS_FACTOR then
+    return true
+  end
 
   return false
 end
+
 
 local function distributeActiveReactors(state, cfg, storageLow, storageHigh, storageMidHigh, steamPct, steamOk, turbinesNeedSteam)
   local list = enabledReactorList(state, "ACTIVE")
@@ -432,7 +476,7 @@ local function distributeActiveReactors(state, cfg, storageLow, storageHigh, sto
     wanted = cfg.operationMode == "NORMAL" and math.min(#list, 2) or 1
   end
 
-  if lowestRpm > 0 and lowestRpm < 1650 then wanted = #list end
+  if lowestRpm > 0 and lowestRpm < 1650 and (not steamOk or steamPct < 0.35) then wanted = #list end
   if steamOk and steamPct < 0.15 then wanted = #list end
 
   for i, e in ipairs(list) do
@@ -452,14 +496,14 @@ local function distributeActiveReactors(state, cfg, storageLow, storageHigh, sto
         elseif demand > 0 and prod > 0 and prod < demand * 0.90 then
           step = M.ROD_STEP_FAST
         end
-        reactors.setRods(r, rod - step)
+        setActiveRodsLimited(r, rod - step, cfg)
 
       elseif activeReactorShouldThrottle(state, cfg, steamPct, steamOk, storageMidHigh) then
         local step = baseStep
         if demand > 0 and prod > demand * 1.50 and lowestRpm >= 1790 then
           step = M.ROD_STEP_FAST
         end
-        reactors.setRods(r, rod + step)
+        setActiveRodsLimited(r, rod + step, cfg)
 
       else
         reactors.setRods(r, rod)
