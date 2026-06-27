@@ -42,40 +42,13 @@ local function drawButton(mon, b)
   writeAt(mon, x, y, b.label, colors.white, b.bg)
 end
 
-local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPage, turbinesPerPage, L, languageFn, updateFn)
+local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPage, turbinesPerPage, L)
   L = L or {}
   local panelX1, panelX2 = 62, 88
   local leftX1, leftX2 = 62, 74
   local rightX1, rightX2 = 76, 88
   local smallLeftA, smallLeftB, smallLeftC, smallLeftD = 62, 67, 69, 74
   local smallRightA, smallRightB, smallRightC, smallRightD = 76, 81, 83, 88
-
-  local function drawOptionsMenu()
-    writeAt(mon, panelX1, 20, string.rep("-", panelX2-panelX1+1), colors.gray)
-    writeAt(mon, panelX1, 21, (L.options or "OPTIONEN"), colors.yellow)
-
-    addButton("optLang", panelX1, 23, panelX2, 25, (L.language or "LANG") .. ": " .. string.upper(cfg.language or "de"), colors.blue, function()
-      if languageFn then languageFn() end
-      state.showOptions = false
-    end)
-
-    addButton("optRescan", panelX1, 27, panelX2, 29, "RESCAN", colors.brown, function()
-      if rescanFn then rescanFn() end
-      state.showOptions = false
-      state.statusLine = L.statusRescan or "Peripherals neu gesucht"
-    end)
-
-    addButton("optUpdate", panelX1, 31, panelX2, 33, (L.update or "UPDATE"), colors.purple, function()
-      if updateFn then updateFn() end
-      state.showOptions = false
-    end)
-
-    addButton("optBack", panelX1, 35, panelX2, 37, (L.back or "BACK"), colors.gray, function()
-      state.showOptions = false
-    end)
-
-    return true
-  end
 
   local function manualColor(base)
     if cfg.auto then return colors.gray end
@@ -171,12 +144,13 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
     local pages=math.max(1, math.ceil(math.max(#state.turbines,1)/turbinesPerPage)); state.turbinePage=state.turbinePage+1; if state.turbinePage>pages then state.turbinePage=1 end; state.selectedTurbine=((state.turbinePage-1)*turbinesPerPage)+1
   end)
 
-  addButton("options", panelX1,45,panelX2,47,(L.option or "OPTION"), colors.brown, function()
-    state.showOptions = not state.showOptions
+  addButton("scan", panelX1,45,panelX2,47,"RESCAN", colors.brown, function()
+    rescanFn()
+    state.statusLine = "Peripherals neu gesucht"
   end)
 end
 
-function M.draw(state, cfg, saveFn, rescanFn, L, languageFn, updateFn)
+function M.draw(state, cfg, saveFn, rescanFn, L)
   L = L or {}
   local mon = state.monitor
   buttons = {}
@@ -301,7 +275,7 @@ function M.draw(state, cfg, saveFn, rescanFn, L, languageFn, updateFn)
     y=y+1
   end
 
-  drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPage, turbinesPerPage, L, languageFn, updateFn)
+  drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPage, turbinesPerPage, L)
 
   for _, b in pairs(buttons) do drawButton(mon,b) end
   writeAt(mon,2,h,utils.padRight(state.statusLine or "", math.max(10,w-2)), colors.lightGray)
