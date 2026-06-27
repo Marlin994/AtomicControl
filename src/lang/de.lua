@@ -40,4 +40,9 @@ return {
   setupPrompt = "Autostart aktivieren? (j/n): ",
   setupDone = "Autostart eingerichtet.",
   setupFailed = "Autostart fehlgeschlagen."
+  option = "OPTION",
+  options = "OPTIONEN",
+  language = "SPRACHE",
+  update = "UPDATE",
+  back = "ZURUECK"
 }

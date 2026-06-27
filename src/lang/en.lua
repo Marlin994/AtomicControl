@@ -40,4 +40,9 @@ return {
   setupPrompt = "Enable autostart? (y/n): ",
   setupDone = "Autostart configured.",
   setupFailed = "Autostart failed."
+  option = "OPTION",
+  options = "OPTIONS",
+  language = "LANG",
+  update = "UPDATE",
+  back = "BACK"
 }

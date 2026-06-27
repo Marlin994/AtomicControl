@@ -50,6 +50,44 @@ local function save()
   config.save(cfg, state)
 end
 
+
+local function askLanguage()
+  -- First-run language selection happens before autostart setup.
+  if cfg.languageSelected and not forceSetup then
+    L = lang.load(cfg.language or "de")
+    return
+  end
+
+  term.setBackgroundColor(colors.black)
+  term.setTextColor(colors.white)
+  term.clear()
+  term.setCursorPos(1, 1)
+
+  print("AtomicControl")
+  print("-------------")
+  if forceSetup then
+    print("Setup mode / Setup-Modus")
+    print("")
+  end
+  print("Select language / Sprache waehlen")
+  print("")
+  print("[1] Deutsch")
+  print("[2] English")
+  print("")
+  write("> ")
+
+  local answer = tostring(read() or "")
+  if answer == "2" or string.lower(answer) == "en" or string.lower(answer) == "english" then
+    cfg.language = "en"
+  else
+    cfg.language = "de"
+  end
+
+  cfg.languageSelected = true
+  L = lang.load(cfg.language or "de")
+  save()
+end
+
 local function askAutostart()
   if forceSetup then cfg.autostartAsked = false end
   if cfg.autostartAsked then return end
@@ -101,6 +139,38 @@ local function rescan()
   state.selectedTurbine = math.max(1, math.min(state.selectedTurbine or 1, math.max(#state.turbines,1)))
 end
 
+
+local function runUpdate()
+  term.setBackgroundColor(colors.black)
+  term.setTextColor(colors.white)
+  term.clear()
+  term.setCursorPos(1, 1)
+
+  print("AtomicControl Update")
+  print("--------------------")
+  print("Downloading update.lua...")
+  print("")
+
+  local url = "https://raw.githubusercontent.com/Marlin994/AtomicControl/main/update.lua"
+  local tmp = "atomiccontrol_update.lua"
+
+  if fs.exists(tmp) then fs.delete(tmp) end
+
+  local ok = shell.run("wget", url, tmp)
+  if not ok or not fs.exists(tmp) then
+    print("")
+    print("Update download failed.")
+    sleep(2)
+    return
+  end
+
+  shell.run(tmp)
+
+  if fs.exists(tmp) then fs.delete(tmp) end
+end
+
+
+askLanguage()
 askAutostart()
 rescan()
 
@@ -121,7 +191,13 @@ local function mainLoop()
     end
     control.update(state, cfg, L)
     alarms.evaluate(state, cfg, L)
-    buttons = ui.draw(state, cfg, save, rescan, L)
+    buttons = ui.draw(state, cfg, save, rescan, L, function()
+      cfg.language = (cfg.language == "de") and "en" or "de"
+      cfg.languageSelected = true
+      L = lang.load(cfg.language or "de")
+      state.statusLine = (cfg.language == "de") and "Sprache: Deutsch" or "Language: English"
+      save()
+    end, runUpdate)
     sleep(0.5)
   end
 end
@@ -131,7 +207,13 @@ local function touchLoop()
     local _, _, x, y = os.pullEvent("monitor_touch")
     if ui.handleTouch(buttons, x, y) then
       save()
-      buttons = ui.draw(state, cfg, save, rescan, L)
+      buttons = ui.draw(state, cfg, save, rescan, L, function()
+      cfg.language = (cfg.language == "de") and "en" or "de"
+      cfg.languageSelected = true
+      L = lang.load(cfg.language or "de")
+      state.statusLine = (cfg.language == "de") and "Sprache: Deutsch" or "Language: English"
+      save()
+    end, runUpdate)
     end
   end
 end
