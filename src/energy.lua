@@ -1,18 +1,51 @@
 local utils = require("utils")
 local M = {}
 
+local function has(storage, method)
+  return storage and type(storage[method]) == "function"
+end
+
+local function call(storage, method)
+  if not has(storage, method) then return nil end
+  return utils.safe(function() return storage[method]() end, nil)
+end
+
 function M.getStored(storage)
   if not storage then return 0, 1, false end
 
-  local stored = utils.safe(function() return storage.getEnergyStored() end, nil)
-  local max = utils.safe(function() return storage.getMaxEnergyStored() end, nil)
+  -- Common FE/RF style
+  local stored = call(storage, "getEnergyStored")
+  local max = call(storage, "getMaxEnergyStored")
   if stored and max and max > 0 then return stored, max, true end
 
-  stored = utils.safe(function() return storage.getEnergy() end, nil)
-  max = utils.safe(function() return storage.getMaxEnergy() end, nil)
+  -- Extreme Reactors Energizer
+  stored = call(storage, "getEnergyStored")
+  max = call(storage, "getEnergyCapacity")
   if stored and max and max > 0 then return stored, max, true end
 
-  local pct = utils.safe(function() return storage.getEnergyFilledPercentage() end, nil)
+  -- Extreme Reactors stats table
+  local stats = call(storage, "getEnergyStats")
+  if type(stats) == "table" then
+    stored = stats.energyStored
+    max = stats.energyCapacity
+    if stored and max and max > 0 then return stored, max, true end
+  end
+
+  -- Alternative generic names
+  stored = call(storage, "getEnergy")
+  max = call(storage, "getMaxEnergy")
+  if stored and max and max > 0 then return stored, max, true end
+
+  stored = call(storage, "getStored")
+  max = call(storage, "getCapacity")
+  if stored and max and max > 0 then return stored, max, true end
+
+  stored = call(storage, "getRFStored")
+  max = call(storage, "getMaxRFStored")
+  if stored and max and max > 0 then return stored, max, true end
+
+  -- Percentage-only fallback
+  local pct = call(storage, "getEnergyFilledPercentage")
   if pct then
     if pct > 1 then pct = pct / 100 end
     return pct, 1, true
@@ -27,7 +60,84 @@ function M.getPercent(storage)
   return utils.clamp(stored / max, 0, 1), true
 end
 
+local function getDirectIo(storage)
+  if not storage then return nil end
+
+  -- Best case: separate inserted/extracted values.
+  local inserted = call(storage, "getEnergyInsertedLastTick")
+  local extracted = call(storage, "getEnergyExtractedLastTick")
+
+  if inserted ~= nil or extracted ~= nil then
+    inserted = tonumber(inserted) or 0
+    extracted = tonumber(extracted) or 0
+
+    return {
+      input = inserted,
+      output = extracted,
+      net = inserted - extracted
+    }
+  end
+
+  -- Some APIs only provide one signed/absolute IO value.
+  local io = call(storage, "getEnergyIoLastTick")
+  if io ~= nil then
+    io = tonumber(io) or 0
+
+    if io >= 0 then
+      return {
+        input = io,
+        output = 0,
+        net = io
+      }
+    else
+      return {
+        input = 0,
+        output = math.abs(io),
+        net = io
+      }
+    end
+  end
+
+  -- Stats table fallback
+  local stats = call(storage, "getEnergyStats")
+  if type(stats) == "table" then
+    inserted = tonumber(stats.energyInsertedLastTick)
+    extracted = tonumber(stats.energyExtractedLastTick)
+
+    if inserted ~= nil or extracted ~= nil then
+      inserted = inserted or 0
+      extracted = extracted or 0
+
+      return {
+        input = inserted,
+        output = extracted,
+        net = inserted - extracted
+      }
+    end
+
+    io = tonumber(stats.energyIoLastTick)
+    if io ~= nil then
+      if io >= 0 then
+        return { input = io, output = 0, net = io }
+      else
+        return { input = 0, output = math.abs(io), net = io }
+      end
+    end
+  end
+
+  return nil
+end
+
 function M.updateFlow(state, updateSeconds)
+  local direct = getDirectIo(state.storage)
+
+  if direct then
+    state.storageInRF = direct.input
+    state.storageOutRF = direct.output
+    state.storageNetRF = direct.net
+    return
+  end
+
   local storedNow, maxNow, ok = M.getStored(state.storage)
 
   if not ok then
