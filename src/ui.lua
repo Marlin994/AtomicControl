@@ -78,35 +78,43 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
   local smallRightA, smallRightB, smallRightC, smallRightD = 76, 81, 83, 88
 
   local function drawOptionsMenu()
-    writeAt(mon, panelX1, 20, string.rep("-", panelX2-panelX1+1), colors.gray)
-    writeAt(mon, panelX1, 21, L.options or "OPTIONEN", colors.yellow)
+    -- Options menu gets the full right panel.
+    -- General controls are hidden while this menu is open.
 
-    addButton("optLang", panelX1, 23, panelX2, 25, (L.language or "LANG") .. ": " .. string.upper(cfg.language or "de"), colors.blue, function()
+    writeAt(mon, panelX1, 2, L.options or "OPTIONEN", colors.yellow)
+    writeAt(mon, panelX1, 3, string.rep("-", panelX2-panelX1+1), colors.gray)
+
+    writeAt(mon, panelX1, 5, "Software", colors.cyan)
+
+    addButton("optLang", panelX1, 7, panelX2, 9, L.language or "SPRACHE", colors.blue, function()
       if languageFn then languageFn() end
       state.showOptions = false
     end)
 
-    addButton("optRescan", panelX1, 27, panelX2, 29, L.rescan or "RESCAN", colors.brown, function()
-      if rescanFn then rescanFn() end
-      state.showOptions = false
-      state.statusLine = L.statusRescan or "Peripherals neu gesucht"
-    end)
-
-    addButton("optCalibrate", panelX1, 31, panelX2, 33, L.calibrateTurbine or "CAL TURB", colors.orange, function()
-      if control.startCalibration(state) then
-        state.showOptions = false
-      end
-    end)
-
-    addButton("optUpdate", panelX1, 35, panelX2, 37, L.update or "UPDATE", colors.purple, function()
+    addButton("optUpdate", panelX1, 11, panelX2, 13, L.update or "UPDATE", colors.purple, function()
       if updateFn then updateFn() end
       state.showOptions = false
     end)
 
-    addButton("optBack", panelX1, 39, panelX2, 41, L.back or "BACK", colors.gray, function()
+    writeAt(mon, panelX1, 16, L.calibration or "Kalibrieren", colors.cyan)
+
+    addButton("optCalCoarse", panelX1, 18, panelX2, 20, L.calibrateCoarse or "GROB", colors.orange, function()
+      if control.startCalibration(state, "coarse") then
+        state.showOptions = false
+      end
+    end)
+
+    addButton("optCalFine", panelX1, 22, panelX2, 24, L.calibrateFine or "FEIN", colors.orange, function()
+      if control.startCalibration(state, "fine") then
+        state.showOptions = false
+      end
+    end)
+
+    addButton("optBack", panelX1, 45, panelX2, 47, L.back or "BACK", colors.gray, function()
       state.showOptions = false
     end)
   end
+
 
   local function manualColor(base)
     if cfg.auto then return colors.gray end
@@ -119,6 +127,11 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
       return true
     end
     return false
+  end
+
+  if state.showOptions then
+    drawOptionsMenu()
+    return
   end
 
   writeAt(mon, panelX1, 2, L.general or "ALLGEMEIN", colors.yellow)
@@ -146,11 +159,6 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
   addButton("minUp", rightX1,12,rightX2,14,L.minUp or "MIN +", colors.purple, function() cfg.storageMin = utils.clamp(cfg.storageMin+5,0,cfg.storageMax-5) end)
   addButton("maxDown", leftX1,16,leftX2,18,L.maxDown or "MAX -", colors.purple, function() cfg.storageMax = utils.clamp(cfg.storageMax-5,cfg.storageMin+5,100) end)
   addButton("maxUp", rightX1,16,rightX2,18,L.maxUp or "MAX +", colors.purple, function() cfg.storageMax = utils.clamp(cfg.storageMax+5,cfg.storageMin+5,100) end)
-
-  if state.showOptions then
-    drawOptionsMenu()
-    return
-  end
 
   writeAt(mon, panelX1,20,string.rep("-", panelX2-panelX1+1), colors.gray)
   writeAt(mon, leftX1,21,L.reactor or "REAKTOR", colors.yellow)

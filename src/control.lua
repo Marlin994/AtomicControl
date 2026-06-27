@@ -135,13 +135,17 @@ local function getLowestEnabledTurbineRPM(state)
   return lowest or 0
 end
 
-function M.startCalibration(state)
+function M.startCalibration(state, mode)
   if not state or not state.turbines then return false end
   local entry = state.turbines[state.selectedTurbine or 1]
   if not entry then return false end
 
+  mode = mode or "fine"
+  if mode ~= "coarse" and mode ~= "fine" then mode = "fine" end
+
   state.calibration = {
     active = true,
+    mode = mode,
     turbineIndex = state.selectedTurbine or 1,
     turbineName = entry.name,
     ticks = 0,
@@ -156,7 +160,12 @@ function M.startCalibration(state)
     bestError = nil
   }
 
-  state.statusLine = "Kalibrierung T" .. tostring(state.selectedTurbine) .. " gestartet"
+  if mode == "coarse" then
+    state.statusLine = "Grobe Kalibrierung T" .. tostring(state.selectedTurbine) .. " gestartet"
+  else
+    state.statusLine = "Feine Kalibrierung T" .. tostring(state.selectedTurbine) .. " gestartet"
+  end
+
   return true
 end
 
@@ -196,9 +205,8 @@ local function controlCalibration(state, cfg, L)
     end
   end
 
-  -- Phase 2: validate a fixed candidate flow.
-  -- This is the important part against inertia overshoot:
-  -- candidate flow is held constant for a while, then corrected.
+  -- Phase 2: fine validation.
+  -- Only used for fine calibration.
   if cal.phase == "validate" then
     turbines.setInductor(t, true)
     turbines.setFlow(t, cal.candidateFlow or flow)
@@ -221,14 +229,12 @@ local function controlCalibration(state, cfg, L)
         state.calibration = nil
         state.statusLine =
           "T" .. tostring(cal.turbineIndex) ..
-          " kalibriert: " .. tostring(math.floor(candidate)) ..
+          " fein kalibriert: " .. tostring(math.floor(candidate)) ..
           " mB/t bei " .. tostring(math.floor(avgRpm)) .. " RPM"
         return true
       end
 
       -- Correct candidate and validate again.
-      -- If RPM is too high, flow is too high.
-      -- Use a proportional-ish correction, but keep it bounded.
       local error = avgRpm - M.TARGET_RPM
       local correction = 1
 
@@ -264,14 +270,14 @@ local function controlCalibration(state, cfg, L)
         state.calibration = nil
         state.statusLine =
           "T" .. tostring(cal.turbineIndex) ..
-          " kalibriert best: " .. tostring(math.floor(candidate)) ..
+          " fein best: " .. tostring(math.floor(candidate)) ..
           " mB/t"
         return true
       end
     end
 
     state.statusLine =
-      "Pruefe T" .. tostring(cal.turbineIndex) ..
+      "Fein T" .. tostring(cal.turbineIndex) ..
       ": " .. tostring(math.floor(rpm)) ..
       " RPM @ " .. tostring(math.floor(cal.candidateFlow or flow)) .. " mB/t"
 
@@ -296,11 +302,28 @@ local function controlCalibration(state, cfg, L)
     cal.overRpm = rpm
   end
 
-  -- If we have both sides of the crossing, create candidate and validate it.
+  -- If we have both sides of the crossing, calculate candidate.
   if cal.underFlow and cal.overFlow then
     local candidate = math.floor(((cal.underFlow + cal.overFlow) / 2) + M.CAL_FLOW_OFFSET)
     if candidate < 0 then candidate = 0 end
 
+    if cal.mode == "coarse" then
+      -- Coarse mode: fast result, no validation phase.
+      setCalibration(cfg, entry, candidate)
+      turbines.setFlow(t, candidate)
+      turbines.setInductor(t, true)
+
+      state.configDirty = true
+      state.calibration = nil
+      state.statusLine =
+        "T" .. tostring(cal.turbineIndex) ..
+        " grob kalibriert: " .. tostring(candidate) ..
+        " mB/t (" .. math.floor(cal.underRpm or 0) ..
+        "/" .. math.floor(cal.overRpm or 0) .. " RPM)"
+      return true
+    end
+
+    -- Fine mode: validate fixed candidate flow.
     cal.phase = "validate"
     cal.candidateFlow = candidate
     cal.validateTicks = 0
@@ -311,7 +334,7 @@ local function controlCalibration(state, cfg, L)
     turbines.setFlow(t, candidate)
     turbines.setInductor(t, true)
 
-    state.statusLine = "Teste Kal T" .. tostring(cal.turbineIndex) .. ": " .. tostring(candidate) .. " mB/t"
+    state.statusLine = "Teste Fein T" .. tostring(cal.turbineIndex) .. ": " .. tostring(candidate) .. " mB/t"
     return true
   end
 
@@ -339,10 +362,21 @@ local function controlCalibration(state, cfg, L)
   cal.ticks = cal.ticks + 1
 
   if cal.ticks >= M.CAL_TIMEOUT_TICKS then
-    -- Fallback: validate best seen value instead of saving it immediately.
+    -- Fallback
     if cal.bestFlow and cal.bestError and cal.bestError <= 100 then
       local candidate = math.floor(cal.bestFlow + M.CAL_FLOW_OFFSET)
       if candidate < 0 then candidate = 0 end
+
+      if cal.mode == "coarse" then
+        setCalibration(cfg, entry, candidate)
+        turbines.setFlow(t, candidate)
+        turbines.setInductor(t, true)
+
+        state.configDirty = true
+        state.statusLine = "T" .. tostring(cal.turbineIndex) .. " grob best: " .. tostring(candidate) .. " mB/t"
+        state.calibration = nil
+        return true
+      end
 
       cal.phase = "validate"
       cal.candidateFlow = candidate
@@ -368,8 +402,9 @@ local function controlCalibration(state, cfg, L)
   if cal.underFlow then underText = tostring(math.floor(cal.underFlow)) .. "@" .. tostring(math.floor(cal.underRpm or 0)) end
   if cal.overFlow then overText = tostring(math.floor(cal.overFlow)) .. "@" .. tostring(math.floor(cal.overRpm or 0)) end
 
+  local prefix = cal.mode == "coarse" and "Grob" or "Fein"
   state.statusLine =
-    "Kal T" .. tostring(cal.turbineIndex) ..
+    prefix .. " T" .. tostring(cal.turbineIndex) ..
     ": " .. math.floor(rpm) .. " RPM / " ..
     math.floor(flow) .. " mB/t U:" .. underText .. " O:" .. overText
 
