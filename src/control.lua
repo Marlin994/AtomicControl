@@ -26,11 +26,13 @@ M.FLOW_STEP_MED = 10      -- 50-100 RPM away
 M.FLOW_STEP_FINE = 5      -- 25-50 RPM away
 M.FLOW_STEP_ULTRA = 1     -- 0-25 RPM away
 
--- Calibration
-M.CAL_STABLE_MIN = 1790
-M.CAL_STABLE_MAX = 1810
-M.CAL_STABLE_TICKS = 20
+-- Calibration search mode
+-- We do not wait for a perfectly stable 1800 RPM anymore.
+-- Instead we search the crossing point around 1800 RPM.
+M.CAL_UNDER_RPM = 1790
+M.CAL_OVER_RPM = 1810
 M.CAL_TIMEOUT_TICKS = 1200
+M.CAL_FLOW_OFFSET = -2
 
 -- Steam target
 M.STEAM_SURPLUS_FACTOR = 1.12
@@ -135,13 +137,22 @@ function M.startCalibration(state)
     active = true,
     turbineIndex = state.selectedTurbine or 1,
     turbineName = entry.name,
-    stableTicks = 0,
-    ticks = 0
+    ticks = 0,
+
+    underFlow = nil,
+    underRpm = nil,
+    overFlow = nil,
+    overRpm = nil,
+
+    bestFlow = nil,
+    bestRpm = nil,
+    bestError = nil
   }
 
   state.statusLine = "Kalibrierung T" .. tostring(state.selectedTurbine) .. " gestartet"
   return true
 end
+
 
 local function controlCalibration(state, cfg, L)
   local cal = state.calibration
@@ -161,8 +172,24 @@ local function controlCalibration(state, cfg, L)
   entry.enabled = true
   turbines.setActive(t, true)
 
-  -- Track the best value seen so far.
-  -- This prevents a failed calibration from timing out without any useful result.
+  -- During calibration we want enough steam from the reactor.
+  -- The normal storage based control is skipped while this function runs.
+  for _, r in ipairs(state.reactors or {}) do
+    if r.enabled and r.kind == "ACTIVE" then
+      local steamPct, steamOk = reactors.getSteamPercent(r)
+
+      if not steamOk or steamPct < 0.45 then
+        reactors.setActive(r, true)
+        reactors.setRods(r, reactors.getRod(r) - M.ROD_STEP_FAST)
+      elseif steamPct > 0.80 then
+        reactors.setRods(r, reactors.getRod(r) + M.ROD_STEP_NORMAL)
+      else
+        reactors.setActive(r, true)
+      end
+    end
+  end
+
+  -- Track best known point close to 1800. Used as fallback.
   local rpmError = math.abs((rpm or 0) - M.TARGET_RPM)
   if flow > 0 then
     if not cal.bestError or rpmError < cal.bestError then
@@ -172,11 +199,37 @@ local function controlCalibration(state, cfg, L)
     end
   end
 
-  -- Calibration behaviour:
-  -- - far below 1800: add more flow
-  -- - far above 1800: remove flow more aggressively
-  -- - near 1800: only +/- 1 mB/t
-  -- The rotor is slow, so we accept a wider stable band and save the best value.
+  -- Store the last point below target and the first point above target.
+  -- The crossing gives a much better calibration than trying to catch
+  -- one perfectly stable moment on a slow rotor.
+  if rpm <= M.TARGET_RPM then
+    cal.underFlow = flow
+    cal.underRpm = rpm
+  elseif rpm > M.TARGET_RPM and not cal.overFlow then
+    cal.overFlow = flow
+    cal.overRpm = rpm
+  end
+
+  -- If we have both sides of the crossing, save the midpoint.
+  if cal.underFlow and cal.overFlow then
+    local finalFlow = math.floor(((cal.underFlow + cal.overFlow) / 2) + M.CAL_FLOW_OFFSET)
+    if finalFlow < 0 then finalFlow = 0 end
+
+    setCalibration(cfg, entry, finalFlow)
+    turbines.setFlow(t, finalFlow)
+    turbines.setInductor(t, true)
+
+    state.configDirty = true
+    state.calibration = nil
+    state.statusLine =
+      "T" .. tostring(cal.turbineIndex) ..
+      " kalibriert: " .. tostring(finalFlow) ..
+      " mB/t (" .. math.floor(cal.underRpm or 0) ..
+      "/" .. math.floor(cal.overRpm or 0) .. " RPM)"
+    return true
+  end
+
+  -- Flow search.
   local step = getCalibrationStepByRpm(rpm)
 
   if rpm < M.RPM_DISENGAGE then
@@ -184,69 +237,39 @@ local function controlCalibration(state, cfg, L)
     turbines.setFlow(t, flow + math.max(step, M.FLOW_STEP_MED))
 
   elseif rpm < M.RPM_REENGAGE then
+    -- Keep generator disengaged until 1750 so the rotor can spin up.
+    turbines.setInductor(t, false)
     turbines.setFlow(t, flow + step)
 
   else
     turbines.setInductor(t, true)
 
-    if rpm < M.CAL_STABLE_MIN then
+    if rpm < M.TARGET_RPM then
       turbines.setFlow(t, flow + step)
-
-    elseif rpm > M.CAL_STABLE_MAX then
-      local downStep = step
-
-      -- If it overshoots badly, correct faster.
-      if rpm > 1850 then
-        downStep = M.FLOW_STEP_MED
-      elseif rpm > 1825 then
-        downStep = math.max(step, M.FLOW_STEP_FINE)
-      end
-
-      turbines.setFlow(t, flow - downStep)
-
-    else
-      -- Inside the acceptable band: only tiny corrections toward 1800.
-      if rpm < M.TARGET_RPM then
-        turbines.setFlow(t, flow + M.FLOW_STEP_ULTRA)
-      elseif rpm > M.TARGET_RPM then
-        turbines.setFlow(t, flow - M.FLOW_STEP_ULTRA)
-      end
+    elseif rpm > M.TARGET_RPM then
+      -- We normally should already have overFlow here.
+      -- If inertia skipped the crossing logic for some reason, reduce flow.
+      turbines.setFlow(t, flow - math.max(1, step))
     end
-  end
-
-  local rpmDelta = 999
-  if cal.lastRpm then
-    rpmDelta = math.abs(rpm - cal.lastRpm)
-  end
-  cal.lastRpm = rpm
-
-  local currentFlow = turbines.getFlow(t)
-
-  if rpm >= M.CAL_STABLE_MIN and rpm <= M.CAL_STABLE_MAX and rpmDelta <= 5 then
-    cal.stableTicks = cal.stableTicks + 1
-  else
-    cal.stableTicks = 0
   end
 
   cal.ticks = cal.ticks + 1
 
-  -- Success: save best flow, not necessarily the current flow.
-  -- Current flow may already have been nudged again because of inertia.
-  if cal.stableTicks >= M.CAL_STABLE_TICKS then
-    local finalFlow = cal.bestFlow or currentFlow
-    setCalibration(cfg, entry, finalFlow)
-    state.configDirty = true
-    state.calibration = nil
-    state.statusLine = "T" .. tostring(cal.turbineIndex) .. " kalibriert: " .. tostring(math.floor(finalFlow)) .. " mB/t"
-    return true
-  end
-
-  -- Timeout fallback: if we ever got reasonably close, save the best value anyway.
   if cal.ticks >= M.CAL_TIMEOUT_TICKS then
-    if cal.bestFlow and cal.bestError and cal.bestError <= 75 then
-      setCalibration(cfg, entry, cal.bestFlow)
+    -- Fallback: save best seen value if it was close enough.
+    if cal.bestFlow and cal.bestError and cal.bestError <= 100 then
+      local finalFlow = math.floor(cal.bestFlow + M.CAL_FLOW_OFFSET)
+      if finalFlow < 0 then finalFlow = 0 end
+
+      setCalibration(cfg, entry, finalFlow)
+      turbines.setFlow(t, finalFlow)
+      turbines.setInductor(t, true)
+
       state.configDirty = true
-      state.statusLine = "T" .. tostring(cal.turbineIndex) .. " bestes Ergebnis: " .. tostring(math.floor(cal.bestFlow)) .. " mB/t bei " .. tostring(math.floor(cal.bestRpm or 0)) .. " RPM"
+      state.statusLine =
+        "T" .. tostring(cal.turbineIndex) ..
+        " bestes Ergebnis: " .. tostring(finalFlow) ..
+        " mB/t bei " .. tostring(math.floor(cal.bestRpm or 0)) .. " RPM"
     else
       state.statusLine = "Kalibrierung Timeout"
     end
@@ -255,12 +278,16 @@ local function controlCalibration(state, cfg, L)
     return true
   end
 
-  local bestText = ""
-  if cal.bestFlow then
-    bestText = " | best " .. math.floor(cal.bestFlow) .. "@" .. math.floor(cal.bestRpm or 0)
-  end
+  local underText = "---"
+  local overText = "---"
+  if cal.underFlow then underText = tostring(math.floor(cal.underFlow)) .. "@" .. tostring(math.floor(cal.underRpm or 0)) end
+  if cal.overFlow then overText = tostring(math.floor(cal.overFlow)) .. "@" .. tostring(math.floor(cal.overRpm or 0)) end
 
-  state.statusLine = "Kalibriere T" .. tostring(cal.turbineIndex) .. ": " .. math.floor(rpm) .. " RPM / " .. math.floor(currentFlow) .. " mB/t" .. bestText
+  state.statusLine =
+    "Kal T" .. tostring(cal.turbineIndex) ..
+    ": " .. math.floor(rpm) .. " RPM / " ..
+    math.floor(flow) .. " mB/t U:" .. underText .. " O:" .. overText
+
   return true
 end
 
