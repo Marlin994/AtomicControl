@@ -23,9 +23,9 @@ M.FLOW_STEP_FINE = 5      -- 25-50 RPM away
 M.FLOW_STEP_ULTRA = 1     -- 0-25 RPM away
 
 -- Calibration
-M.CAL_STABLE_MIN = 1795
-M.CAL_STABLE_MAX = 1805
-M.CAL_STABLE_TICKS = 16
+M.CAL_STABLE_MIN = 1798
+M.CAL_STABLE_MAX = 1802
+M.CAL_STABLE_TICKS = 60
 M.CAL_TIMEOUT_TICKS = 800
 
 -- Steam target
@@ -49,6 +49,20 @@ local function getFlowStepByRpm(rpm)
   elseif diff > 50 then
     return M.FLOW_STEP_MED
   elseif diff > 25 then
+    return M.FLOW_STEP_FINE
+  else
+    return M.FLOW_STEP_ULTRA
+  end
+end
+
+local function getCalibrationStepByRpm(rpm)
+  local diff = math.abs((rpm or 0) - M.TARGET_RPM)
+
+  -- Calibration is deliberately more conservative near the target,
+  -- because the rotor continues to accelerate/decelerate slowly.
+  if diff > 100 then
+    return M.FLOW_STEP_MED
+  elseif diff > 50 then
     return M.FLOW_STEP_FINE
   else
     return M.FLOW_STEP_ULTRA
@@ -139,26 +153,39 @@ local function controlCalibration(state, cfg, L)
   local t = entry.p
   local rpm = turbines.getRPM(t)
   local flow = turbines.getFlow(t)
-  local step = getFlowStepByRpm(rpm)
+  local step = getCalibrationStepByRpm(rpm)
 
   entry.enabled = true
   turbines.setActive(t, true)
 
+  -- During calibration the turbine is allowed to change flow.
+  -- We save only after the RPM is both near 1800 and no longer drifting.
   if rpm < M.RPM_DISENGAGE then
     turbines.setInductor(t, false)
     turbines.setFlow(t, flow + math.max(step, M.FLOW_STEP_MED))
+
   elseif rpm < M.RPM_REENGAGE then
     turbines.setFlow(t, flow + step)
+
   else
     turbines.setInductor(t, true)
-    if rpm < M.TARGET_RPM then
+
+    if rpm < M.CAL_STABLE_MIN then
       turbines.setFlow(t, flow + step)
-    elseif rpm > M.TARGET_RPM then
+    elseif rpm > M.CAL_STABLE_MAX then
       turbines.setFlow(t, flow - step)
     end
   end
 
-  if rpm >= M.CAL_STABLE_MIN and rpm <= M.CAL_STABLE_MAX then
+  local rpmDelta = 999
+  if cal.lastRpm then
+    rpmDelta = math.abs(rpm - cal.lastRpm)
+  end
+  cal.lastRpm = rpm
+
+  local currentFlow = turbines.getFlow(t)
+
+  if rpm >= M.CAL_STABLE_MIN and rpm <= M.CAL_STABLE_MAX and rpmDelta <= 1.5 then
     cal.stableTicks = cal.stableTicks + 1
   else
     cal.stableTicks = 0
@@ -167,30 +194,23 @@ local function controlCalibration(state, cfg, L)
   cal.ticks = cal.ticks + 1
 
   if cal.stableTicks >= M.CAL_STABLE_TICKS then
-    local finalFlow = turbines.getFlow(t)
-    setCalibration(cfg, entry, finalFlow)
+    setCalibration(cfg, entry, currentFlow)
     state.configDirty = true
     state.calibration = nil
-    state.statusLine = "T" .. tostring(cal.turbineIndex) .. " kalibriert: " .. tostring(finalFlow) .. " mB/t"
+    state.statusLine = "T" .. tostring(cal.turbineIndex) .. " kalibriert: " .. tostring(currentFlow) .. " mB/t"
     return true
   end
 
   if cal.ticks >= M.CAL_TIMEOUT_TICKS then
-    local finalFlow = turbines.getFlow(t)
-    if finalFlow > 0 then
-      setCalibration(cfg, entry, finalFlow)
-      state.configDirty = true
-      state.statusLine = "T" .. tostring(cal.turbineIndex) .. " Timeout, Wert gespeichert: " .. tostring(finalFlow) .. " mB/t"
-    else
-      state.statusLine = "Kalibrierung Timeout"
-    end
+    state.statusLine = "Kalibrierung Timeout"
     state.calibration = nil
     return true
   end
 
-  state.statusLine = "Kalibriere T" .. tostring(cal.turbineIndex) .. ": " .. math.floor(rpm) .. " RPM / " .. math.floor(flow) .. " mB/t"
+  state.statusLine = "Kalibriere T" .. tostring(cal.turbineIndex) .. ": " .. math.floor(rpm) .. " RPM / " .. math.floor(currentFlow) .. " mB/t"
   return true
 end
+
 
 local function applyCalibratedFlow(entry, cfg)
   local calibrated = getCalibration(cfg, entry)

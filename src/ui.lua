@@ -9,6 +9,31 @@ local M = {}
 
 local buttons = {}
 
+local function getTurbineCalibration(cfg, entry)
+  if not cfg or not entry or not entry.name then return nil end
+  if type(cfg.turbineCalibrations) ~= "table" then return nil end
+
+  local v = cfg.turbineCalibrations[entry.name]
+  if type(v) == "table" then
+    return tonumber(v.flow)
+  end
+
+  return tonumber(v)
+end
+
+local function setTurbineCalibration(cfg, entry, flow)
+  if not cfg or not entry or not entry.name or not flow then return false end
+  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+
+  cfg.turbineCalibrations[entry.name] = {
+    flow = math.floor(flow),
+    rpm = 1800,
+    adjustedAt = os.epoch and os.epoch("utc") or os.clock()
+  }
+
+  return true
+end
+
 local function writeAt(mon, x, y, text, fg, bg)
   if not mon then return end
   mon.setCursorPos(x, y)
@@ -169,14 +194,44 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
     if t then t.enabled = not t.enabled; if not t.enabled then turbines.setFlow(t.p,0); turbines.setInductor(t.p,false); turbines.setActive(t.p,false) end end
   end)
 
-  addButton("flowDown", rightX1,27,rightX2,29,L.flowDown or "-FLOW", manualColor(colors.gray), function()
-    if manualBlocked() then return end
-    local t = state.turbines[state.selectedTurbine]; if t then turbines.setFlow(t.p, turbines.getFlow(t.p)-25) end
+  addButton("flowDown", rightX1,27,rightX2,29,L.flowDown or "-FLOW", cfg.auto and colors.cyan or colors.gray, function()
+    local t = state.turbines[state.selectedTurbine]
+    if not t then return end
+
+    if cfg.auto then
+      local calibrated = getTurbineCalibration(cfg, t)
+      if calibrated then
+        setTurbineCalibration(cfg, t, math.max(0, calibrated - 1))
+        state.configDirty = true
+        state.statusLine = "Kal Flow T" .. tostring(state.selectedTurbine) .. ": " .. tostring(math.max(0, calibrated - 1)) .. " mB/t"
+      else
+        state.statusLine = "Turbine nicht kalibriert"
+      end
+      return
+    end
+
+    local tObj = t.p
+    turbines.setFlow(tObj, turbines.getFlow(tObj)-25)
   end)
 
-  addButton("flowUp", rightX1,31,rightX2,33,L.flowUp or "+FLOW", manualColor(colors.gray), function()
-    if manualBlocked() then return end
-    local t = state.turbines[state.selectedTurbine]; if t then turbines.setFlow(t.p, turbines.getFlow(t.p)+25) end
+  addButton("flowUp", rightX1,31,rightX2,33,L.flowUp or "+FLOW", cfg.auto and colors.cyan or colors.gray, function()
+    local t = state.turbines[state.selectedTurbine]
+    if not t then return end
+
+    if cfg.auto then
+      local calibrated = getTurbineCalibration(cfg, t)
+      if calibrated then
+        setTurbineCalibration(cfg, t, calibrated + 1)
+        state.configDirty = true
+        state.statusLine = "Kal Flow T" .. tostring(state.selectedTurbine) .. ": " .. tostring(calibrated + 1) .. " mB/t"
+      else
+        state.statusLine = "Turbine nicht kalibriert"
+      end
+      return
+    end
+
+    local tObj = t.p
+    turbines.setFlow(tObj, turbines.getFlow(tObj)+25)
   end)
 
   addButton("turbDown", smallRightA,35,smallRightB,37,"^", colors.blue, function()
@@ -293,8 +348,14 @@ function M.draw(state, cfg, saveFn, rescanFn, L, languageFn, updateFn)
   local lastTurbine = math.min(#state.turbines, firstTurbine+turbinesPerPage-1)
 
   writeAt(mon,2,29,(L.turbines or "Turbinen")..": "..#state.turbines.." | "..(L.selected or "Auswahl")..": T"..state.selectedTurbine.." | "..(L.page or "Seite").." "..state.turbinePage.."/"..totalPages,colors.yellow)
-  writeAt(mon,2,30,"Nr",colors.gray); writeAt(mon,9,30,L.status or "Status",colors.gray); writeAt(mon,19,30,"RPM",colors.gray); writeAt(mon,27,30,"Flow",colors.gray); writeAt(mon,39,30,"RF/t",colors.gray); writeAt(mon,49,30,"mB/RF",colors.gray)
-  writeAt(mon,2,31,string.rep("-",54),colors.gray)
+  writeAt(mon,2,30,"Nr",colors.gray)
+  writeAt(mon,8,30,L.status or "Status",colors.gray)
+  writeAt(mon,18,30,"RPM",colors.gray)
+  writeAt(mon,27,30,"Flow",colors.gray)
+  writeAt(mon,36,30,"Kal.",colors.gray)
+  writeAt(mon,45,30,"RF/t",colors.gray)
+  writeAt(mon,54,30,"mB/RF",colors.gray)
+  writeAt(mon,2,31,string.rep("-",58),colors.gray)
   y=32
   for i=firstTurbine,lastTurbine do
     local e=state.turbines[i]
@@ -302,13 +363,6 @@ function M.draw(state, cfg, saveFn, rescanFn, L, languageFn, updateFn)
     local steam=turbines.getSteam(e.p)
     local rf=turbines.getRF(e.p)
     local eff=rf>0 and steam/rf or 0
-    local cal = "---"
-    if cfg.turbineCalibrations and e.name and cfg.turbineCalibrations[e.name] then
-      local c = cfg.turbineCalibrations[e.name]
-      if type(c)=="table" then c=c.flow end
-      if c then cal=tostring(math.floor(c)) end
-    end
-    local flowText = tostring(math.floor(steam)).."/"..cal
     local rpmColor=colors.lime
     if rpm<1700 or rpm>1850 then rpmColor=colors.red elseif rpm<1750 then rpmColor=colors.orange end
     if rpm==0 then rpmColor=colors.gray end
@@ -325,12 +379,19 @@ function M.draw(state, cfg, saveFn, rescanFn, L, languageFn, updateFn)
       end
     end
 
+    local calFlow = getTurbineCalibration(cfg, e)
+    local calText = "---"
+    if calFlow then
+      calText = tostring(math.floor(calFlow))
+    end
+
     writeAt(mon,2,y,(i==state.selectedTurbine and ">" or " ").."T"..i, i==state.selectedTurbine and colors.lime or colors.yellow)
-    writeAt(mon,9,y,utils.padRight(tStatus,6), tStatusColor)
-    writeAt(mon,19,y,utils.padLeft(math.floor(rpm),5),rpmColor)
-    writeAt(mon,27,y,utils.padLeft(flowText,11),colors.orange)
-    writeAt(mon,39,y,utils.padLeft(utils.formatShort(rf),8),colors.lime)
-    writeAt(mon,49,y,utils.padLeft(string.format("%.4f",eff),7),colors.cyan)
+    writeAt(mon,8,y,utils.padRight(tStatus,6), tStatusColor)
+    writeAt(mon,18,y,utils.padLeft(math.floor(rpm),5),rpmColor)
+    writeAt(mon,27,y,utils.padLeft(math.floor(turbines.getFlow(e.p)),6),colors.orange)
+    writeAt(mon,36,y,utils.padLeft(calText,6),calFlow and colors.cyan or colors.gray)
+    writeAt(mon,45,y,utils.padLeft(utils.formatShort(rf),7),colors.lime)
+    writeAt(mon,54,y,utils.padLeft(string.format("%.4f",eff),7),colors.cyan)
     y=y+1
   end
 
