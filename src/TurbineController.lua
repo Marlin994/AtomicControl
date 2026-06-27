@@ -7,10 +7,21 @@ M.TARGET_RPM = 1800
 M.RPM_DISENGAGE = 1700
 M.RPM_REENGAGE = 1750
 
+-- Around 1800 RPM the flow should not constantly move.
+M.RPM_DEADBAND = 2
+
+-- Absolute max correction per cycle by distance from target.
 M.FLOW_STEP_FAR = 25
 M.FLOW_STEP_MED = 10
 M.FLOW_STEP_FINE = 5
 M.FLOW_STEP_ULTRA = 1
+
+-- PI/PID-style flow controller.
+-- Output is still capped by the step table above.
+M.PID_KP = 0.06
+M.PID_KI = 0.004
+M.PID_KD = 0.02
+M.PID_INTEGRAL_LIMIT = 250
 
 M.CAL_STABLE_MIN = 1795
 M.CAL_STABLE_MAX = 1805
@@ -26,13 +37,27 @@ M.LEARN_REQUIRED_TICKS = 60
 M.LEARN_CHANGE_THRESHOLD = 0.02
 M.LEARN_ALPHA = 0.10
 
-local function stepForRPM(rpm)
+local function maxStepForRPM(rpm)
   local diff = math.abs((rpm or 0) - M.TARGET_RPM)
 
   if diff > 100 then return M.FLOW_STEP_FAR end
   if diff > 50 then return M.FLOW_STEP_MED end
   if diff > 25 then return M.FLOW_STEP_FINE end
   return M.FLOW_STEP_ULTRA
+end
+
+local function clamp(v, min, max)
+  if v < min then return min end
+  if v > max then return max end
+  return v
+end
+
+local function integerPart(v)
+  if v >= 0 then
+    return math.floor(v)
+  else
+    return math.ceil(v)
+  end
 end
 
 function M.getCalibration(cfg, entry)
@@ -106,6 +131,57 @@ local function updateCalibrationValue(cfg, entry, newFlow, learned)
   }
 end
 
+local function resetPid(entry)
+  entry.pidIntegral = 0
+  entry.pidLastError = nil
+  entry.pidCarry = 0
+end
+
+local function pidFlowDelta(entry, rpm)
+  local error = M.TARGET_RPM - (rpm or 0)
+  local absError = math.abs(error)
+
+  -- At target RPM: do not move flow. Decay integral slowly to prevent windup.
+  if absError <= M.RPM_DEADBAND then
+    entry.pidIntegral = (entry.pidIntegral or 0) * 0.80
+    entry.pidLastError = error
+    entry.pidCarry = 0
+    return 0
+  end
+
+  local maxStep = maxStepForRPM(rpm)
+
+  entry.pidIntegral = clamp((entry.pidIntegral or 0) + error, -M.PID_INTEGRAL_LIMIT, M.PID_INTEGRAL_LIMIT)
+
+  local derivative = 0
+  if entry.pidLastError ~= nil then
+    derivative = error - entry.pidLastError
+  end
+  entry.pidLastError = error
+
+  local output =
+    (M.PID_KP * error) +
+    (M.PID_KI * entry.pidIntegral) +
+    (M.PID_KD * derivative)
+
+  output = clamp(output, -maxStep, maxStep)
+
+  -- Accumulate fractional PID output so small corrections still happen,
+  -- but not every tick at exactly 1800 RPM.
+  entry.pidCarry = (entry.pidCarry or 0) + output
+  entry.pidCarry = clamp(entry.pidCarry, -maxStep, maxStep)
+
+  local delta = integerPart(entry.pidCarry)
+
+  if delta ~= 0 then
+    entry.pidCarry = entry.pidCarry - delta
+  end
+
+  delta = clamp(delta, -maxStep, maxStep)
+
+  return delta
+end
+
 local function learnCalibration(state, cfg, entry, rpm, flow, storageFull)
   if storageFull or cfg.operationMode == "CYANITE" then
     entry.learnTicks = 0
@@ -163,6 +239,8 @@ function M.startCalibration(state)
   local entry = state.turbines and state.turbines[state.selectedTurbine or 1]
   if not entry then return false end
 
+  resetPid(entry)
+
   state.calibration = {
     active = true,
     turbineIndex = state.selectedTurbine or 1,
@@ -190,24 +268,19 @@ function M.runCalibration(state, cfg)
   local t = entry.p
   local rpm = turbines.getRPM(t)
   local flow = turbines.getFlow(t)
-  local step = stepForRPM(rpm)
 
   entry.enabled = true
   turbines.setActive(t, true)
 
   if rpm < M.RPM_DISENGAGE then
     turbines.setInductor(t, false)
-    turbines.setFlow(t, flow + math.max(step, M.FLOW_STEP_MED))
-  elseif rpm < M.RPM_REENGAGE then
-    turbines.setFlow(t, flow + step)
-  else
+  elseif rpm >= M.RPM_REENGAGE then
     turbines.setInductor(t, true)
+  end
 
-    if rpm < M.TARGET_RPM then
-      turbines.setFlow(t, flow + step)
-    elseif rpm > M.TARGET_RPM then
-      turbines.setFlow(t, flow - step)
-    end
+  local delta = pidFlowDelta(entry, rpm)
+  if delta ~= 0 then
+    turbines.setFlow(t, flow + delta)
   end
 
   if rpm >= M.CAL_STABLE_MIN and rpm <= M.CAL_STABLE_MAX then
@@ -223,6 +296,7 @@ function M.runCalibration(state, cfg)
     M.setCalibration(cfg, entry, finalFlow)
     state.configDirty = true
     state.calibration = nil
+    resetPid(entry)
     state.statusLine = "T" .. tostring(cal.turbineIndex) .. " calibrated: " .. tostring(finalFlow) .. " mB/t"
     return true
   end
@@ -239,6 +313,7 @@ function M.runCalibration(state, cfg)
     end
 
     state.calibration = nil
+    resetPid(entry)
     return true
   end
 
@@ -258,10 +333,10 @@ function M.update(state, cfg, storageFull)
       turbines.setInductor(t, false)
       turbines.setFlow(t, 0)
       entry.learnTicks = 0
+      resetPid(entry)
     else
       local rpm = turbines.getRPM(t)
       local flow = turbines.getFlow(t)
-      local step = stepForRPM(rpm)
       local engaged = turbines.getInductor(t)
       local calibrated = M.getCalibration(cfg, entry)
 
@@ -275,20 +350,22 @@ function M.update(state, cfg, storageFull)
         local idle = getIdleFlow(cfg, entry) or 0
 
         if idle > 0 then
-          if flow > idle then
-            turbines.setFlow(t, flow - math.max(step, M.FLOW_STEP_MED))
-          elseif flow < idle then
-            turbines.setFlow(t, flow + M.FLOW_STEP_ULTRA)
+          local idleError = idle - flow
+          if math.abs(idleError) > 1 then
+            local maxStep = M.FLOW_STEP_MED
+            turbines.setFlow(t, flow + clamp(idleError, -maxStep, maxStep))
           end
         else
           turbines.setFlow(t, 0)
         end
 
         entry.learnTicks = 0
+        resetPid(entry)
 
       else
-        -- If calibrated, quickly move toward the nominal baseline if we are far away.
-        if calibrated and calibrated > 0 and math.abs(calibrated - flow) > 100 then
+        -- Calibration is only a rough baseline.
+        -- Do NOT force flow toward calibration while RPM is already near target.
+        if calibrated and calibrated > 0 and math.abs(M.TARGET_RPM - rpm) > 50 and math.abs(calibrated - flow) > 150 then
           if calibrated > flow then
             turbines.setFlow(t, flow + M.FLOW_STEP_FAR)
           else
@@ -298,23 +375,21 @@ function M.update(state, cfg, storageFull)
 
         if rpm < M.RPM_DISENGAGE then
           turbines.setInductor(t, false)
-          turbines.setFlow(t, flow + math.max(step, M.FLOW_STEP_MED))
           needsSteam = true
-
         elseif rpm < M.RPM_REENGAGE then
           turbines.setInductor(t, engaged)
-          turbines.setFlow(t, flow + step)
           needsSteam = true
-
         else
           turbines.setInductor(t, true)
+        end
 
-          if rpm < M.TARGET_RPM then
-            turbines.setFlow(t, flow + step)
-            if rpm < M.TARGET_RPM - 10 then needsSteam = true end
-          elseif rpm > M.TARGET_RPM then
-            turbines.setFlow(t, flow - step)
-          end
+        local delta = pidFlowDelta(entry, rpm)
+        if delta ~= 0 then
+          turbines.setFlow(t, turbines.getFlow(t) + delta)
+        end
+
+        if rpm < M.TARGET_RPM - 10 then
+          needsSteam = true
         end
 
         learnCalibration(state, cfg, entry, rpm, turbines.getFlow(t), storageFull)
