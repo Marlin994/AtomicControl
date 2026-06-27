@@ -21,7 +21,8 @@ local defaults = {
 
   reactors = {},
   turbines = {},
-  turbineCalibrations = {}
+  turbineCalibrations = {},
+  reactorCalibrations = {}
 }
 
 local function copyDefaults()
@@ -55,7 +56,8 @@ function M.load()
 
   if type(cfg.reactors) ~= "table" then cfg.reactors = {} end
   if type(cfg.turbines) ~= "table" then cfg.turbines = {} end
-  if type(cfg.turbineCalibrations) ~= "table" then cfg.turbineCalibrations = {} end
+  if type(cfg.turbineCalibrations) ~= "table" then cfg.turbineCalibrations = {},
+  reactorCalibrations = {} end
   if cfg.language ~= "de" and cfg.language ~= "en" then cfg.language = "de" end
   if cfg.operationMode ~= "ECO" and cfg.operationMode ~= "NORMAL" and cfg.operationMode ~= "CYANITE" then
     cfg.operationMode = "NORMAL"
@@ -69,7 +71,8 @@ function M.save(cfg, state)
 
   cfg.reactors = {}
   cfg.turbines = {}
-  if type(cfg.turbineCalibrations) ~= "table" then cfg.turbineCalibrations = {} end
+  if type(cfg.turbineCalibrations) ~= "table" then cfg.turbineCalibrations = {},
+  reactorCalibrations = {} end
 
   if state then
     for _, r in ipairs(state.reactors or {}) do

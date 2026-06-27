@@ -1,12 +1,10 @@
 local reactors = require("reactors")
 local SteamManager = require("steammanager")
 local TurbineController = require("turbinecontroller")
+local ReactorCalibration = require("reactorcalibration")
 
 local M = {}
 
--- NORMAL:
--- target = turbine steam demand * 1.03
--- deadband = +/- 40 mB/t
 M.DEADBAND = 40
 M.ROD_STEP_SMALL = 1
 M.ROD_STEP_MED = 2
@@ -41,24 +39,51 @@ local function rodStep(errorAbs)
   return 0
 end
 
-function M.update(state, cfg, storageHigh, storageLow, steamPct, steamOk, turbinesNeedSteam)
-  local list = enabledActiveReactors(state)
-  if #list == 0 then return end
+local function moveRodsToward(r, targetRod)
+  local current = reactors.getRod(r)
+  local delta = targetRod - current
 
-  if cfg.operationMode == "CYANITE" then
-    for _, e in ipairs(list) do
-      reactors.setActive(e.r, true)
-      reactors.setRods(e.r, 0)
-      e.r.managedActive = true
+  if math.abs(delta) <= 1 then
+    reactors.setRods(r, targetRod)
+  elseif delta > 0 then
+    reactors.setRods(r, current + math.min(delta, 3))
+  else
+    reactors.setRods(r, current + math.max(delta, -3))
+  end
+end
+
+local function calibratedControl(state, cfg, list, target)
+  local remaining = target
+  local usedAnyCalibration = false
+
+  for i, e in ipairs(list) do
+    local r = e.r
+    local data = ReactorCalibration.getCalibration(cfg, r)
+
+    if remaining > M.DEADBAND and data then
+      usedAnyCalibration = true
+      reactors.setActive(r, true)
+      r.managedActive = true
+
+      local rod, expectedSteam = ReactorCalibration.getRodForSteam(cfg, r, remaining)
+
+      if rod then
+        moveRodsToward(r, rod)
+        remaining = remaining - (expectedSteam or 0)
+      else
+        reactors.setRods(r, 0)
+      end
+    else
+      reactors.setActive(r, false)
+      reactors.setRods(r, 100)
+      r.managedActive = false
     end
-    return
   end
 
-  if storageHigh then
-    setIdle(list, 1)
-    return
-  end
+  return usedAnyCalibration
+end
 
+local function fallbackControl(state, cfg, list, storageLow, steamPct, steamOk, turbinesNeedSteam)
   local targetInfo = SteamManager.getTarget(state, cfg)
   local target = targetInfo.target or 0
   local production = SteamManager.getProduction(state)
@@ -100,15 +125,10 @@ function M.update(state, cfg, storageHigh, storageLow, steamPct, steamOk, turbin
 
       if target <= 0 then
         reactors.setRods(r, rod + M.ROD_STEP_FAST)
-
       elseif error > M.DEADBAND then
-        -- Need more steam: rods out.
         reactors.setRods(r, rod - step)
-
       elseif error < -M.DEADBAND then
-        -- Too much steam: rods in.
         reactors.setRods(r, rod + step)
-
       else
         reactors.setRods(r, rod)
       end
@@ -118,6 +138,40 @@ function M.update(state, cfg, storageHigh, storageLow, steamPct, steamOk, turbin
       r.managedActive = false
     end
   end
+end
+
+function M.update(state, cfg, storageHigh, storageLow, steamPct, steamOk, turbinesNeedSteam)
+  local list = enabledActiveReactors(state)
+  if #list == 0 then return end
+
+  if cfg.operationMode == "CYANITE" then
+    for _, e in ipairs(list) do
+      reactors.setActive(e.r, true)
+      reactors.setRods(e.r, 0)
+      e.r.managedActive = true
+    end
+
+    return
+  end
+
+  if storageHigh then
+    setIdle(list, 1)
+    return
+  end
+
+  local targetInfo = SteamManager.getTarget(state, cfg)
+  local target = targetInfo.target or 0
+
+  if target <= 0 then
+    setIdle(list, 1)
+    return
+  end
+
+  if calibratedControl(state, cfg, list, target) then
+    return
+  end
+
+  fallbackControl(state, cfg, list, storageLow, steamPct, steamOk, turbinesNeedSteam)
 end
 
 return M

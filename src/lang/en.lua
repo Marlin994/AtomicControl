@@ -101,5 +101,6 @@ return {
   alarmNoRF = " no RF",
   alarmActiveNoTurbine = "Active R%d without turbine",
   alarmNoSteam = "R%d no steam",
-  alarmAllReactorsOff = "All reactors OFF"
+  alarmAllReactorsOff = "All reactors OFF",
+  calibrateReactor = "CAL R"
 }

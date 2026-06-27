@@ -4,6 +4,7 @@ local turbines = require("turbines")
 local TurbineController = require("turbinecontroller")
 local ActiveReactorController = require("activereactorcontroller")
 local PassiveReactorController = require("passivereactorcontroller")
+local ReactorCalibration = require("reactorcalibration")
 
 local M = {}
 
@@ -11,10 +12,18 @@ function M.startCalibration(state)
   return TurbineController.startCalibration(state)
 end
 
+function M.startReactorCalibration(state)
+  return ReactorCalibration.start(state)
+end
+
 function M.update(state, cfg, L)
   L = L or {}
 
   if TurbineController.runCalibration(state, cfg) then
+    return
+  end
+
+  if ReactorCalibration.update(state, cfg) then
     return
   end
 
