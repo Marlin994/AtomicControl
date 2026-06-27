@@ -7,22 +7,26 @@ local M = {}
 
 -- Turbine control
 M.TARGET_RPM = 1800
-M.RPM_FLOW_UP = 1750       -- below this: add steam flow
-M.RPM_REENGAGE = 1750      -- re-engage generator/inductor from this RPM upward
-M.RPM_DISENGAGE = 1700     -- below this: disengage generator/inductor
-M.RPM_FLOW_DOWN = 1825     -- above this: reduce steam flow
+M.RPM_FLOW_UP = 1750
+M.RPM_REENGAGE = 1750
+M.RPM_DISENGAGE = 1700
+M.RPM_FLOW_DOWN = 1825
 M.MAX_RPM = 1850
 
 -- Reactor control
 M.ROD_STEP_ECO = 1
 M.ROD_STEP_NORMAL = 3
 M.ROD_STEP_FAST = 6
-M.FLOW_STEP = 25
 
--- Aim to produce only slightly more steam than the turbines currently consume.
--- This prevents active reactors from sitting at 0% rods while the steam buffer rises.
-M.STEAM_SURPLUS_FACTOR = 1.08
-M.STEAM_DEFICIT_FACTOR = 0.96
+-- Flow steps based on distance from 1800 RPM
+M.FLOW_STEP_FAR = 25      -- more than 100 RPM away
+M.FLOW_STEP_MED = 10      -- 50-100 RPM away
+M.FLOW_STEP_FINE = 5      -- 25-50 RPM away
+M.FLOW_STEP_ULTRA = 1     -- 0-25 RPM away
+
+-- Steam target
+M.STEAM_SURPLUS_FACTOR = 1.10
+M.STEAM_DEFICIT_FACTOR = 1.03
 
 local function enabledReactorList(state, kind)
   local out = {}
@@ -42,6 +46,35 @@ local function totalSteamProduction(state)
   return reactors.getTotalSteamProduction(state.reactors or {})
 end
 
+local function getFlowStepByRpm(rpm)
+  local diff = math.abs((rpm or 0) - M.TARGET_RPM)
+
+  if diff > 100 then
+    return M.FLOW_STEP_FAR
+  elseif diff > 50 then
+    return M.FLOW_STEP_MED
+  elseif diff > 25 then
+    return M.FLOW_STEP_FINE
+  else
+    return M.FLOW_STEP_ULTRA
+  end
+end
+
+local function getLowestEnabledTurbineRPM(state)
+  local lowest = nil
+
+  for _, entry in ipairs(state.turbines or {}) do
+    if entry.enabled then
+      local rpm = turbines.getRPM(entry.p)
+      if lowest == nil or rpm < lowest then
+        lowest = rpm
+      end
+    end
+  end
+
+  return lowest or 0
+end
+
 local function controlTurbines(state, storageFull, cfg)
   local needsMoreSteam = false
   local cyanite = cfg.operationMode == "CYANITE"
@@ -57,6 +90,7 @@ local function controlTurbines(state, storageFull, cfg)
       local rpm = turbines.getRPM(t)
       local flow = turbines.getFlow(t)
       local engaged = turbines.getInductor(t)
+      local step = getFlowStepByRpm(rpm)
 
       turbines.setActive(t, state.enabled)
 
@@ -65,43 +99,38 @@ local function controlTurbines(state, storageFull, cfg)
         turbines.setFlow(t, 0)
 
       else
-        -- New hysteresis:
-        -- <1700 RPM  : disengage to allow faster spin-up
-        -- 1700-1749  : increase flow, but do not force disengage
-        -- >=1750 RPM : engage/re-engage
-        -- aim around 1800 RPM by nudging flow up/down
+        -- Hysteresis:
+        -- <1700 RPM  : disengage
+        -- 1700-1749  : increase flow, stay in previous engagement state
+        -- >=1750 RPM : engage
+        -- target      : 1800 RPM with finer flow steps near target
 
         if rpm < M.RPM_DISENGAGE then
           turbines.setInductor(t, false)
-          turbines.setFlow(t, flow + (cyanite and M.FLOW_STEP * 2 or M.FLOW_STEP))
+          turbines.setFlow(t, flow + math.max(step, M.FLOW_STEP_MED))
           needsMoreSteam = true
 
         elseif rpm < M.RPM_REENGAGE then
-          -- Between 1700 and 1750: increase flow.
-          -- If already disengaged, remain disengaged until 1750.
           if not engaged then
             turbines.setInductor(t, false)
           else
             turbines.setInductor(t, true)
           end
 
-          turbines.setFlow(t, flow + M.FLOW_STEP)
+          turbines.setFlow(t, flow + step)
           needsMoreSteam = true
 
         else
-          -- At/above 1750: generator should be engaged.
           turbines.setInductor(t, true)
 
-          if rpm < (M.TARGET_RPM - 10) then
-            turbines.setFlow(t, flow + M.FLOW_STEP)
-            needsMoreSteam = true
+          if rpm < M.TARGET_RPM then
+            turbines.setFlow(t, flow + step)
+            if rpm < M.TARGET_RPM - 10 then
+              needsMoreSteam = true
+            end
 
-          elseif rpm > M.RPM_FLOW_DOWN then
-            turbines.setFlow(t, flow - M.FLOW_STEP)
-
-          elseif rpm > (M.TARGET_RPM + 10) then
-            -- small correction, still uses same step for compatibility
-            turbines.setFlow(t, flow - M.FLOW_STEP)
+          elseif rpm > M.TARGET_RPM then
+            turbines.setFlow(t, flow - step)
           end
         end
       end
@@ -119,43 +148,55 @@ local function setLaterReactorsIdle(list, startIndex)
   end
 end
 
-local function shouldIncreaseActiveReactor(state, steamPct, steamOk, storageLow)
+local function activeReactorNeedsMorePower(state, steamPct, steamOk, storageLow, turbinesNeedSteam)
   local use = totalSteamUse(state)
   local prod = totalSteamProduction(state)
+  local lowestRpm = getLowestEnabledTurbineRPM(state)
 
   if storageLow then return true end
+  if turbinesNeedSteam then return true end
 
-  -- If turbines consume steam but production is too low, withdraw rods.
-  if use > 0 and prod > 0 and prod < use * M.STEAM_DEFICIT_FACTOR then
+  -- Turbine demand should drive the reactor.
+  if lowestRpm > 0 and lowestRpm < 1780 then
     return true
   end
 
-  -- If we have no useful production reading, fall back to buffer level.
-  if prod <= 0 and use > 0 and steamOk and steamPct < 0.45 then
-    return true
+  -- If steam production is lower than current turbine consumption,
+  -- pull rods out even if the steam buffer is not empty yet.
+  if use > 0 then
+    if prod <= 0 then
+      if steamOk and steamPct < 0.65 then return true end
+    elseif prod < use * M.STEAM_DEFICIT_FACTOR then
+      return true
+    end
   end
 
-  if steamOk and steamPct < 0.25 then
+  if steamOk and steamPct < 0.35 then
     return true
   end
 
   return false
 end
 
-local function shouldDecreaseActiveReactor(state, steamPct, steamOk, storageMidHigh)
+local function activeReactorShouldThrottle(state, steamPct, steamOk, storageMidHigh)
   local use = totalSteamUse(state)
   local prod = totalSteamProduction(state)
+  local lowestRpm = getLowestEnabledTurbineRPM(state)
 
   if storageMidHigh then return true end
 
-  -- If production is clearly higher than demand, insert rods.
-  -- Example: reactor can make 5000 mB/t while turbines use 2000 mB/t.
+  -- Do not throttle while turbines are still below target.
+  if lowestRpm > 0 and lowestRpm < 1790 then
+    return false
+  end
+
+  -- If production is substantially above turbine demand, insert rods.
   if use > 0 and prod > use * M.STEAM_SURPLUS_FACTOR then
     return true
   end
 
-  -- If buffer is high, also insert rods.
-  if steamOk and steamPct > 0.70 then
+  -- If buffer is already high, insert rods.
+  if steamOk and steamPct > 0.75 then
     return true
   end
 
@@ -182,14 +223,17 @@ local function distributeActiveReactors(state, cfg, storageLow, storageHigh, sto
 
   local use = totalSteamUse(state)
   local prod = totalSteamProduction(state)
+  local lowestRpm = getLowestEnabledTurbineRPM(state)
 
-  -- Load distribution:
-  -- Start with one active reactor. Add more only if steam buffer is low
-  -- or production cannot keep up with turbine demand.
+  -- Load distribution: one active reactor first; add more only if demand cannot be met.
   local wanted = 1
 
   if use > 0 and prod > 0 and prod < use * 0.80 then
     wanted = cfg.operationMode == "NORMAL" and math.min(#list, 2) or 1
+  end
+
+  if lowestRpm > 0 and lowestRpm < 1650 then
+    wanted = #list
   end
 
   if steamOk and steamPct < 0.15 then
@@ -204,21 +248,31 @@ local function distributeActiveReactors(state, cfg, storageLow, storageHigh, sto
       r.managedActive = true
 
       local rod = reactors.getRod(r)
-      local step = cfg.operationMode == "NORMAL" and M.ROD_STEP_NORMAL or M.ROD_STEP_ECO
+      local baseStep = cfg.operationMode == "NORMAL" and M.ROD_STEP_NORMAL or M.ROD_STEP_ECO
 
-      if shouldDecreaseActiveReactor(state, steamPct, steamOk, storageMidHigh) then
-        -- Stronger correction if production is much higher than demand.
-        local correction = step
-        if use > 0 and prod > use * 1.50 then
-          correction = M.ROD_STEP_FAST
+      if activeReactorNeedsMorePower(state, steamPct, steamOk, storageLow, turbinesNeedSteam) then
+        local step = baseStep
+
+        -- Stronger pull-out when turbine RPM is far too low or steam production lags.
+        if lowestRpm > 0 and lowestRpm < 1750 then
+          step = M.ROD_STEP_FAST
+        elseif use > 0 and prod > 0 and prod < use * 0.90 then
+          step = M.ROD_STEP_FAST
         end
-        reactors.setRods(r, rod + correction)
 
-      elseif shouldIncreaseActiveReactor(state, steamPct, steamOk, storageLow) then
         reactors.setRods(r, rod - step)
 
+      elseif activeReactorShouldThrottle(state, steamPct, steamOk, storageMidHigh) then
+        local step = baseStep
+
+        -- Stronger throttle only if production greatly exceeds demand and RPM is healthy.
+        if use > 0 and prod > use * 1.50 and lowestRpm >= 1790 then
+          step = M.ROD_STEP_FAST
+        end
+
+        reactors.setRods(r, rod + step)
+
       else
-        -- Hold rods steady inside the balanced range.
         reactors.setRods(r, rod)
       end
     else
