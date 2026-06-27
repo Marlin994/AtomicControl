@@ -1,0 +1,13 @@
+# ComputerCraft runtime/config
+reactor_turbine_controller.cfg
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs/backups
+*.log
+*.bak
+*.tmp
