@@ -1,6 +1,5 @@
 return {
   title = "ATOMICCONTROL",
-
   on = "AN",
   off = "AUS",
   free = "FREI",
@@ -12,7 +11,6 @@ return {
   system = "Anlage",
   mode = "Modus",
   manual = "MANUAL",
-
   storage = "Speicher",
   minMax = "Min/Max",
   steam = "Dampf",
@@ -31,26 +29,19 @@ return {
   page = "Seite",
   status = "Status",
   rods = "Rods",
-
   rfTurbines = "RF Turbinen",
   rfPassive = "RF Passiv",
   rfTotal = "RF Gesamt",
 
   general = "ALLGEMEIN",
-  software = "Software",
+  enabledToggle = "EIN/AUS",
   option = "OPTION",
   options = "OPTIONEN",
   language = "SPRACHE",
   update = "UPDATE",
-  rescan = "RESCAN",
   back = "ZURUECK",
+  rescan = "RESCAN",
 
-  calibration = "Kalibrieren",
-  calibrateTurbine = "KAL T",
-  calibrateCoarse = "GROB",
-  calibrateFine = "FEIN",
-
-  enabledToggle = "EIN/AUS",
   minDown = "MIN -",
   minUp = "MIN +",
   maxDown = "MAX -",
@@ -101,5 +92,6 @@ return {
   alarmNoRF = " kein RF",
   alarmActiveNoTurbine = "Aktiver R%d ohne Turbine",
   alarmNoSteam = "R%d kein Dampf",
-  alarmAllReactorsOff = "Alle Reaktoren AUS"
+  alarmAllReactorsOff = "Alle Reaktoren AUS",
+  calibrateTurbine = "KAL T"
 }

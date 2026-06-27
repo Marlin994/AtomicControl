@@ -19,6 +19,7 @@ M.CAL_TIMEOUT_TICKS = 800
 
 local function stepForRPM(rpm)
   local diff = math.abs((rpm or 0) - M.TARGET_RPM)
+
   if diff > 100 then return M.FLOW_STEP_FAR end
   if diff > 50 then return M.FLOW_STEP_MED end
   if diff > 25 then return M.FLOW_STEP_FINE end
@@ -28,6 +29,7 @@ end
 function M.getCalibration(cfg, entry)
   if not cfg or not entry or not entry.name then return nil end
   cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+
   local v = cfg.turbineCalibrations[entry.name]
   if type(v) == "table" then return tonumber(v.flow) end
   return tonumber(v)
@@ -36,8 +38,12 @@ end
 function M.setCalibration(cfg, entry, flow)
   if not cfg or not entry or not entry.name then return end
   cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+
+  local nominal = math.floor(flow or 0)
+
   cfg.turbineCalibrations[entry.name] = {
-    flow = math.floor(flow or 0),
+    flow = nominal,
+    idleFlow = utils.clamp(math.floor(nominal * 0.10), 25, 250),
     rpm = M.TARGET_RPM,
     calibratedAt = os.epoch and os.epoch("utc") or os.clock()
   }
@@ -64,6 +70,7 @@ function M.runCalibration(state, cfg)
   if not cal or not cal.active then return false end
 
   local entry = state.turbines[cal.turbineIndex]
+
   if not entry or entry.name ~= cal.turbineName then
     state.calibration = nil
     state.statusLine = "Calibration cancelled"
@@ -85,6 +92,7 @@ function M.runCalibration(state, cfg)
     turbines.setFlow(t, flow + step)
   else
     turbines.setInductor(t, true)
+
     if rpm < M.TARGET_RPM then
       turbines.setFlow(t, flow + step)
     elseif rpm > M.TARGET_RPM then
@@ -111,6 +119,7 @@ function M.runCalibration(state, cfg)
 
   if cal.ticks >= M.CAL_TIMEOUT_TICKS then
     local finalFlow = turbines.getFlow(t)
+
     if finalFlow > 0 then
       M.setCalibration(cfg, entry, finalFlow)
       state.configDirty = true
@@ -118,12 +127,29 @@ function M.runCalibration(state, cfg)
     else
       state.statusLine = "Calibration timeout"
     end
+
     state.calibration = nil
     return true
   end
 
   state.statusLine = "Cal T" .. tostring(cal.turbineIndex) .. ": " .. math.floor(rpm) .. " RPM / " .. math.floor(flow) .. " mB/t"
   return true
+end
+
+local function getIdleFlow(cfg, entry)
+  if not cfg or not entry or not entry.name then return nil end
+  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+
+  local v = cfg.turbineCalibrations[entry.name]
+  if type(v) == "table" then
+    return tonumber(v.idleFlow) or (tonumber(v.flow) and utils.clamp(math.floor(tonumber(v.flow) * 0.10), 25, 250))
+  end
+
+  if tonumber(v) then
+    return utils.clamp(math.floor(tonumber(v) * 0.10), 25, 250)
+  end
+
+  return nil
 end
 
 function M.update(state, cfg, storageFull)
@@ -147,10 +173,13 @@ function M.update(state, cfg, storageFull)
       turbines.setActive(t, state.enabled)
 
       if storageFull and not cyanite then
+        -- Storage full:
+        -- Stop generation, but keep the rotor alive using a small idle flow.
         turbines.setInductor(t, false)
 
-        if calibrated and calibrated > 0 then
-          local idle = utils.clamp(math.floor(calibrated * 0.10), 25, 250)
+        local idle = getIdleFlow(cfg, entry) or 0
+
+        if idle > 0 then
           if flow > idle then
             turbines.setFlow(t, flow - math.max(step, M.FLOW_STEP_MED))
           elseif flow < idle then
@@ -161,6 +190,8 @@ function M.update(state, cfg, storageFull)
         end
 
       else
+        -- If a calibration exists and we are far away from it, move quickly
+        -- toward the calibrated baseline before fine RPM trimming.
         if calibrated and calibrated > 0 and math.abs(calibrated - flow) > 100 then
           if calibrated > flow then
             turbines.setFlow(t, flow + M.FLOW_STEP_FAR)
@@ -198,12 +229,17 @@ end
 
 function M.lowestRPM(state)
   local lowest = nil
+
   for _, entry in ipairs(state.turbines or {}) do
     if entry.enabled then
       local rpm = turbines.getRPM(entry.p)
-      if lowest == nil or rpm < lowest then lowest = rpm end
+
+      if lowest == nil or rpm < lowest then
+        lowest = rpm
+      end
     end
   end
+
   return lowest or 0
 end
 

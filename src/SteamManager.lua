@@ -3,12 +3,13 @@ local reactors = require("reactors")
 
 local M = {}
 
-M.RESERVE_ECO = 1.02
-M.RESERVE_NORMAL = 1.05
+-- NORMAL mode targets minimal oversupply.
+M.RESERVE_NORMAL = 1.03
 
 local function getCalibration(cfg, entry)
   if not cfg or not entry or not entry.name then return nil end
   cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+
   local v = cfg.turbineCalibrations[entry.name]
   if type(v) == "table" then return tonumber(v.flow) end
   return tonumber(v)
@@ -46,15 +47,17 @@ function M.getTarget(state, cfg)
   local demand = M.getDemand(state, cfg)
 
   if cfg.operationMode == "CYANITE" then
-    return { demand = demand, target = nil, reserve = nil }
+    return {
+      demand = demand,
+      target = nil,
+      reserve = nil
+    }
   end
-
-  local reserve = cfg.operationMode == "NORMAL" and M.RESERVE_NORMAL or M.RESERVE_ECO
 
   return {
     demand = demand,
-    target = demand.demand * reserve,
-    reserve = reserve
+    target = demand.demand * M.RESERVE_NORMAL,
+    reserve = M.RESERVE_NORMAL
   }
 end
 

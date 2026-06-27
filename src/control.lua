@@ -20,11 +20,13 @@ function M.update(state, cfg, L)
 
   if not state.enabled then
     for _, r in ipairs(state.reactors or {}) do reactors.setActive(r, false) end
+
     for _, t in ipairs(state.turbines or {}) do
       turbines.setActive(t.p, false)
       turbines.setInductor(t.p, false)
       turbines.setFlow(t.p, 0)
     end
+
     state.statusLine = L.statusSystemOff or "Anlage ausgeschaltet"
     return
   end
@@ -64,10 +66,8 @@ function M.update(state, cfg, L)
 
   if cfg.operationMode == "CYANITE" then
     state.statusLine = L.statusCyanite or "CYANITE: Fuel wird verbrannt, RPM geregelt"
-  elseif cfg.operationMode == "NORMAL" then
-    state.statusLine = L.statusNormal or "NORMAL: Lastverteilung aktiv"
   else
-    state.statusLine = L.statusEco or "ECO: Lastverteilung aktiv"
+    state.statusLine = L.statusNormal or "NORMAL: Lastverteilung aktiv"
   end
 end
 

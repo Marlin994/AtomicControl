@@ -17,12 +17,13 @@ It automatically manages complete power plants consisting of:
 
 # Features
 
-- Automatic reactor control
-- Active & passive reactor support
+- Automatic active reactor control based on turbine steam demand
+- Passive reactor support
 - Multiple turbine support
+- Turbine calibration for stable 1800 RPM operation
 - Automatic turbine RPM regulation
-- ECO / NORMAL / CYANITE operating modes
-- Automatic energy storage management
+- NORMAL / CYANITE operating modes
+- Energy storage management
 - Reactor load balancing
 - Alarm system
 - Current steam production display
@@ -32,6 +33,30 @@ It automatically manages complete power plants consisting of:
 - Autostart support
 - Modular architecture
 - Language system (German / English)
+
+---
+
+# Operating Modes
+
+## NORMAL
+
+NORMAL is the default mode.
+
+It tries to produce only slightly more steam than the turbines currently consume.
+
+```text
+Target steam production = turbine steam demand × 1.03
+```
+
+The controller uses a small deadband so the reactor does not constantly move the rods.
+
+## CYANITE
+
+CYANITE mode is used to burn fuel and produce Cyanite.
+
+- Active reactors run at 0% rods
+- Turbines are still regulated around 1800 RPM
+- If the energy storage is full, turbines are disengaged but kept ready with idle flow
 
 ---
 

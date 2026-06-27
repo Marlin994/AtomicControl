@@ -4,6 +4,10 @@ local TurbineController = require("turbinecontroller")
 
 local M = {}
 
+-- NORMAL mode:
+-- target = turbine steam demand * 1.03
+-- deadband = +/- 40 mB/t
+M.DEADBAND = 40
 M.ROD_STEP_SMALL = 1
 M.ROD_STEP_MED = 2
 M.ROD_STEP_FAST = 4
@@ -11,11 +15,13 @@ M.ROD_STEP_EMERGENCY = 8
 
 local function enabledActiveReactors(state)
   local out = {}
+
   for i, r in ipairs(state.reactors or {}) do
     if r.enabled and r.kind == "ACTIVE" then
       table.insert(out, {idx = i, r = r})
     end
   end
+
   return out
 end
 
@@ -31,7 +37,7 @@ local function rodStep(errorAbs)
   if errorAbs > 800 then return M.ROD_STEP_EMERGENCY end
   if errorAbs > 400 then return M.ROD_STEP_FAST end
   if errorAbs > 150 then return M.ROD_STEP_MED end
-  if errorAbs > 40 then return M.ROD_STEP_SMALL end
+  if errorAbs > M.DEADBAND then return M.ROD_STEP_SMALL end
   return 0
 end
 
@@ -59,17 +65,30 @@ function M.update(state, cfg, storageHigh, storageLow, steamPct, steamOk, turbin
   local lowestRpm = TurbineController.lowestRPM(state)
 
   local wanted = 1
+
+  -- Add more active reactors only if one reactor cannot keep up.
   if target > 0 and production > 0 and production < target * 0.75 then
-    wanted = cfg.operationMode == "NORMAL" and math.min(#list, 2) or 1
+    wanted = math.min(#list, 2)
   end
-  if lowestRpm > 0 and lowestRpm < 1650 then wanted = #list end
-  if steamOk and steamPct < 0.15 then wanted = #list end
+
+  if lowestRpm > 0 and lowestRpm < 1650 then
+    wanted = #list
+  end
+
+  if steamOk and steamPct < 0.15 then
+    wanted = #list
+  end
 
   local error = target - production
   local step = rodStep(math.abs(error))
 
-  if turbinesNeedSteam and step < M.ROD_STEP_MED then step = M.ROD_STEP_MED end
-  if storageLow and step < M.ROD_STEP_FAST then step = M.ROD_STEP_FAST end
+  if turbinesNeedSteam and step < M.ROD_STEP_MED then
+    step = M.ROD_STEP_MED
+  end
+
+  if storageLow and step < M.ROD_STEP_FAST then
+    step = M.ROD_STEP_FAST
+  end
 
   for i, e in ipairs(list) do
     local r = e.r
@@ -82,11 +101,17 @@ function M.update(state, cfg, storageHigh, storageLow, steamPct, steamOk, turbin
 
       if target <= 0 then
         reactors.setRods(r, rod + M.ROD_STEP_FAST)
-      elseif error > 40 then
+
+      elseif error > M.DEADBAND then
+        -- Need more steam: rods out.
         reactors.setRods(r, rod - step)
-      elseif error < -40 then
+
+      elseif error < -M.DEADBAND then
+        -- Too much steam: rods in.
         reactors.setRods(r, rod + step)
+
       else
+        -- Close enough: hold.
         reactors.setRods(r, rod)
       end
     else

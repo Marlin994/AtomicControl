@@ -2,16 +2,17 @@ local reactors = require("reactors")
 
 local M = {}
 
-M.ROD_STEP_ECO = 1
 M.ROD_STEP_NORMAL = 3
 
 local function enabledPassiveReactors(state)
   local out = {}
+
   for i, r in ipairs(state.reactors or {}) do
     if r.enabled and r.kind == "PASSIVE" then
       table.insert(out, {idx = i, r = r})
     end
   end
+
   return out
 end
 
@@ -42,8 +43,14 @@ function M.update(state, cfg, storageLow, storageHigh, storageMidHigh)
   end
 
   local wanted = 1
-  if storageLow and cfg.operationMode == "NORMAL" then wanted = math.min(#list, 2) end
-  if storageLow and (state.storageNetRF or 0) < -1000 then wanted = #list end
+
+  if storageLow then
+    wanted = math.min(#list, 2)
+  end
+
+  if storageLow and (state.storageNetRF or 0) < -1000 then
+    wanted = #list
+  end
 
   for i, e in ipairs(list) do
     local r = e.r
@@ -53,10 +60,11 @@ function M.update(state, cfg, storageLow, storageHigh, storageMidHigh)
       r.managedActive = true
 
       local rod = reactors.getRod(r)
+
       if storageLow then
-        reactors.setRods(r, rod - (cfg.operationMode == "NORMAL" and M.ROD_STEP_NORMAL or M.ROD_STEP_ECO))
+        reactors.setRods(r, rod - M.ROD_STEP_NORMAL)
       elseif storageMidHigh then
-        reactors.setRods(r, rod + M.ROD_STEP_ECO)
+        reactors.setRods(r, rod + 1)
       end
     else
       reactors.setActive(r, false)
