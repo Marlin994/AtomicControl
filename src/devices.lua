@@ -18,15 +18,63 @@ function M.isTurbine(p)
   return M.hasMethod(p, "getRotorSpeed")
 end
 
+local function numberOrNil(v)
+  v = tonumber(v)
+  if v == nil then return nil end
+  return v
+end
+
 function M.reactorHasSteam(p)
-  if M.hasMethod(p, "getHotFluidAmount") then
-    local v = utils.safe(function() return p.getHotFluidAmount() end, nil)
-    if v ~= nil then return true end
+  if not p then return false end
+
+  -- Strong indicators for actively cooled reactors.
+  -- Do NOT use getHotFluidAmount alone. Passive reactors can expose it too.
+  if M.hasMethod(p, "getHotFluidProducedLastTick") then return true end
+  if M.hasMethod(p, "getHotFluidGeneratedLastTick") then return true end
+  if M.hasMethod(p, "getFluidProducedLastTick") then return true end
+
+  -- Some versions expose stats instead of explicit production methods.
+  if M.hasMethod(p, "getHotFluidStats") then
+    local stats = utils.safe(function() return p.getHotFluidStats() end, nil)
+
+    if type(stats) == "table" then
+      local capacity =
+        numberOrNil(stats.capacity) or
+        numberOrNil(stats.max) or
+        numberOrNil(stats.fluidCapacity) or
+        numberOrNil(stats.amountMax)
+
+      local amount =
+        numberOrNil(stats.amount) or
+        numberOrNil(stats.stored) or
+        numberOrNil(stats.fluidAmount)
+
+      local produced =
+        numberOrNil(stats.producedLastTick) or
+        numberOrNil(stats.generatedLastTick) or
+        numberOrNil(stats.amountProducedLastTick)
+
+      -- A real active reactor usually has a hot-fluid tank with capacity,
+      -- or reports hot-fluid production. Passive reactors may expose empty
+      -- compatibility methods, so require meaningful data.
+      if produced and produced > 0 then return true end
+      if capacity and capacity > 0 then return true end
+      if amount and amount > 0 then return true end
+    end
   end
 
-  if M.hasMethod(p, "getHotFluidStats") then
-    local v = utils.safe(function() return p.getHotFluidStats() end, nil)
-    if v ~= nil then return true end
+  -- Last fallback: only classify as active if a max/capacity method exists
+  -- and returns a positive value. getHotFluidAmount alone is not enough.
+  if M.hasMethod(p, "getHotFluidAmountMax") then
+    local max = utils.safe(function() return p.getHotFluidAmountMax() end, nil)
+    max = numberOrNil(max)
+    if max and max > 0 then return true end
+  end
+
+  if M.hasMethod(p, "getHotFluidCapacity") then
+    local max = utils.safe(function() return p.getHotFluidCapacity() end, nil)
+    max = numberOrNil(max)
+    if max and max > 0 then return true end
   end
 
   return false
@@ -50,7 +98,6 @@ function M.findStorage()
           return p, name
         end
 
-        -- Keep as fallback even if current call failed for some reason.
         if not firstCandidate then
           firstCandidate = p
           firstCandidateName = name
