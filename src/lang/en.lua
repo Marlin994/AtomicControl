@@ -93,6 +93,5 @@ return {
   alarmNoRF = " no RF",
   alarmActiveNoTurbine = "Active R%d without turbine",
   alarmNoSteam = "R%d no steam",
-  alarmAllReactorsOff = "All reactors OFF",
-  transferEfficiency = "Steam Eff"
+  alarmAllReactorsOff = "All reactors OFF"
 }

@@ -6,16 +6,26 @@ It controls active reactors, passive reactors, turbines, energy storage, calibra
 
 ---
 
+## Current Version
+
+**v3.2.0**
+
+This is a clean integrated release that merges the previous patch series into one consistent repository.
+
+---
+
 ## Features
 
 - Active reactor support
 - Passive reactor support
+- Reliable active/passive detection via `isActivelyCooled()`
 - Multiple reactor support
 - Multiple turbine support
 - Turbine PID-style flow control around **1800 RPM**
 - Turbine calibration
 - Adaptive turbine calibration learning
 - Active reactor calibration curve
+- Reactor calibration in **5% rod steps**
 - Direct rod control from measured reactor calibration data
 - NORMAL and CYANITE operating modes
 - Energy storage detection
@@ -30,8 +40,6 @@ It controls active reactors, passive reactors, turbines, energy storage, calibra
 ---
 
 ## Supported Energy Storage APIs
-
-AtomicControl detects energy storage by available peripheral methods.
 
 ### Common FE/RF style
 
@@ -51,7 +59,7 @@ getEnergyExtractedLastTick()
 getEnergyIoLastTick()
 ```
 
-### Other fallback APIs
+### Fallback APIs
 
 ```lua
 getEnergy()
@@ -86,8 +94,6 @@ If no reactor calibration exists yet, it falls back to dynamic rod regulation.
 
 CYANITE mode intentionally burns fuel to produce Cyanite.
 
-In CYANITE mode:
-
 - active reactors run at 0% rods
 - turbines are still regulated around 1800 RPM
 - if the energy storage is full, turbines are disengaged but kept ready with idle flow
@@ -98,32 +104,21 @@ In CYANITE mode:
 
 ### Turbine Calibration
 
-Use the options menu button:
+Use:
 
 ```text
-CAL T
+OPTION -> CAL T
 ```
 
 This calibrates the selected turbine and stores the flow needed for stable 1800 RPM.
 
-Stored values include:
-
-- nominal flow
-- idle flow
-- target RPM
-- calibration timestamp
-
-During normal operation, AtomicControl can slowly adjust the saved calibration if the turbine runs stable near 1800 RPM with a different flow requirement.
-
 ### Reactor Calibration
 
-Use the options menu button:
+Use:
 
 ```text
-CAL R
+OPTION -> CAL R
 ```
-
-This calibrates the selected active reactor.
 
 During reactor calibration:
 
@@ -136,17 +131,19 @@ During reactor calibration:
 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0
 ```
 
-AtomicControl saves the measured steam output curve and uses it in NORMAL mode to select rod levels directly.
+AtomicControl saves the measured steam output curve and uses it in NORMAL mode.
 
 ---
 
 ## Active vs Passive Reactor Detection
 
-AtomicControl detects active Extreme Reactors using:
+AtomicControl primarily uses:
 
 ```lua
 isActivelyCooled()
 ```
+
+This is the reliable Extreme Reactors method.
 
 Fallback checks include:
 
@@ -160,13 +157,11 @@ getHotFluidStats()
 
 ## Installation
 
-### Recommended installation via Pastebin bootstrap
+### Recommended
 
 ```lua
 pastebin run rmAZkc7s
 ```
-
-The Pastebin bootstrap downloads the current installer from GitHub.
 
 ### Direct GitHub install
 
@@ -182,7 +177,7 @@ wget run https://raw.githubusercontent.com/Marlin994/AtomicControl/main/install.
 wget run https://raw.githubusercontent.com/Marlin994/AtomicControl/main/update.lua
 ```
 
-The updater downloads the latest installer, installs all files, and then reboots the ComputerCraft computer automatically.
+The updater downloads the latest installer, installs all files, and reboots the ComputerCraft computer.
 
 When an existing configuration file is found, setup is not started again.
 
@@ -201,32 +196,9 @@ The configuration is saved in:
 reactor_turbine_controller.cfg
 ```
 
-After the first setup, updates should not ask again for language or autostart.
-
----
-
-## Monitor UI
-
-An advanced monitor is recommended.
-
-The UI supports:
-
-- system status
-- storage level
-- steam production
-- turbine RPM
-- turbine flow
-- reactor rods
-- reactor/turbine pages
-- options menu
-- calibration buttons
-- update button
-
 ---
 
 ## Required Files
-
-The installer downloads these files into the ComputerCraft computer:
 
 ```text
 main.lua
@@ -248,86 +220,6 @@ reactorcalibration.lua
 startup.lua
 lang/de.lua
 lang/en.lua
-```
-
----
-
-## Project Structure
-
-```text
-src/
-  main.lua
-  config.lua
-  control.lua
-  devices.lua
-  energy.lua
-  reactors.lua
-  turbines.lua
-  alarms.lua
-  ui.lua
-  utils.lua
-  lang.lua
-  steammanager.lua
-  turbinecontroller.lua
-  activereactorcontroller.lua
-  passivereactorcontroller.lua
-  reactorcalibration.lua
-  startup.lua
-  lang/
-    de.lua
-    en.lua
-
-installer/
-  install.lua
-  update.lua
-
-docs/
-```
-
----
-
-## Troubleshooting
-
-### Energy storage is not detected
-
-Run this on the ComputerCraft computer:
-
-```lua
-for _,name in ipairs(peripheral.getNames()) do
-  print(name .. " -> " .. peripheral.getType(name))
-end
-```
-
-Then dump methods for the storage:
-
-```lua
-local p=peripheral.wrap("NAME")
-local f=fs.open("storage_dump.txt","w")
-for _,m in ipairs(peripheral.getMethods("NAME")) do
-  local ok,r=pcall(function() return p[m]() end)
-  f.writeLine(m..": "..(ok and textutils.serialize(r) or "<parameter required>"))
-end
-f.close()
-```
-
-### Active/passive reactor is detected incorrectly
-
-Dump the reactor methods and values:
-
-```lua
-local p=peripheral.wrap("NAME")
-local f=fs.open("reactor_dump.txt","w")
-for _,m in ipairs(peripheral.getMethods("NAME")) do
-  local ok,r=pcall(function() return p[m]() end)
-  f.writeLine(m..": "..(ok and textutils.serialize(r) or "<parameter required>"))
-end
-f.close()
-```
-
-The most important value is:
-
-```lua
-isActivelyCooled()
 ```
 
 ---

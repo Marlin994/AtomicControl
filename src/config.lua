@@ -13,7 +13,6 @@ local defaults = {
   auto = true,
   enabled = true,
   operationMode = "NORMAL",
-  steamTransferEfficiency = 1.00,
 
   selectedReactor = 1,
   selectedTurbine = 1,
@@ -69,10 +68,6 @@ function M.load()
   if cfg.operationMode ~= "NORMAL" and cfg.operationMode ~= "CYANITE" then
     cfg.operationMode = "NORMAL"
   end
-
-  cfg.steamTransferEfficiency = tonumber(cfg.steamTransferEfficiency) or 1.00
-  if cfg.steamTransferEfficiency < 0.50 then cfg.steamTransferEfficiency = 0.50 end
-  if cfg.steamTransferEfficiency > 1.10 then cfg.steamTransferEfficiency = 1.10 end
 
   return cfg
 end

@@ -9,544 +9,419 @@ local M = {}
 
 local buttons = {}
 
-local function safe(fn, fallback)
-  local ok, result = pcall(fn)
-  if ok then return result end
-  return fallback
-end
+local function getTurbineCalibration(cfg, entry)
+  if not cfg or not entry or not entry.name then return nil end
+  if type(cfg.turbineCalibrations) ~= "table" then return nil end
 
-local function clamp(v, a, b)
-  v = tonumber(v) or 0
-  if v < a then return a end
-  if v > b then return b end
-  return v
-end
-
-local function padRight(text, width)
-  text = tostring(text or "")
-  width = tonumber(width) or 0
-  if #text >= width then return string.sub(text, 1, width) end
-  return text .. string.rep(" ", width - #text)
-end
-
-local function padLeft(text, width)
-  text = tostring(text or "")
-  width = tonumber(width) or 0
-  if #text >= width then return string.sub(text, 1, width) end
-  return string.rep(" ", width - #text) .. text
-end
-
-local function shortNumber(v)
-  v = tonumber(v) or 0
-  if math.abs(v) >= 1000000000 then
-    return string.format("%.2fG", v / 1000000000)
-  elseif math.abs(v) >= 1000000 then
-    return string.format("%.2fM", v / 1000000)
-  elseif math.abs(v) >= 1000 then
-    return string.format("%.1fk", v / 1000)
+  local v = cfg.turbineCalibrations[entry.name]
+  if type(v) == "table" then
+    return tonumber(v.flow)
   end
-  return tostring(math.floor(v))
+
+  return tonumber(v)
 end
 
-local function rfText(v)
-  v = tonumber(v) or 0
-  if math.abs(v) >= 1000000000 then
-    return string.format("%.2f GRF/t", v / 1000000000)
-  elseif math.abs(v) >= 1000000 then
-    return string.format("%.2f MRF/t", v / 1000000)
-  elseif math.abs(v) >= 1000 then
-    return string.format("%.1f kRF/t", v / 1000)
-  end
-  return tostring(math.floor(v)) .. " RF/t"
-end
+local function setTurbineCalibration(cfg, entry, flow)
+  if not cfg or not entry or not entry.name or not flow then return false end
+  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
 
-local function onOff(v, L)
-  if v then return L.on or "ON" end
-  return L.off or "OFF"
+  cfg.turbineCalibrations[entry.name] = {
+    flow = math.floor(flow),
+    rpm = 1800,
+    adjustedAt = os.epoch and os.epoch("utc") or os.clock()
+  }
+
+  return true
 end
 
 local function writeAt(mon, x, y, text, fg, bg)
   if not mon then return end
-  local w, h = mon.getSize()
-  if y < 1 or y > h then return end
-  if x < 1 then x = 1 end
-  if x > w then return end
-
   mon.setCursorPos(x, y)
   mon.setTextColor(fg or colors.white)
   mon.setBackgroundColor(bg or colors.black)
   mon.write(tostring(text or ""))
 end
 
-local function drawButton(mon, b)
-  if not mon or not b then return end
-
-  local w, h = mon.getSize()
-
-  b.x1 = clamp(b.x1, 1, w)
-  b.x2 = clamp(b.x2, 1, w)
-  b.y1 = clamp(b.y1, 1, h)
-  b.y2 = clamp(b.y2, 1, h)
-
-  if b.x2 < b.x1 then b.x1, b.x2 = b.x2, b.x1 end
-  if b.y2 < b.y1 then b.y1, b.y2 = b.y2, b.y1 end
-
-  local bw = b.x2 - b.x1 + 1
-  local label = tostring(b.label or "")
-  if #label > bw then label = string.sub(label, 1, bw) end
-
-  mon.setTextColor(colors.white)
-  mon.setBackgroundColor(b.bg or colors.gray)
-
-  for y = b.y1, b.y2 do
-    mon.setCursorPos(b.x1, y)
-    mon.write(string.rep(" ", bw))
-  end
-
-  local x = b.x1 + math.floor((bw - #label) / 2)
-  local y = b.y1 + math.floor((b.y2 - b.y1) / 2)
-
-  mon.setCursorPos(x, y)
-  mon.write(label)
-
-  mon.setBackgroundColor(colors.black)
+local function drawBar(mon, x, y, w, percent, fg)
+  percent = utils.clamp(percent or 0, 0, 1)
+  local filled = math.floor(w * percent)
+  local empty = w - filled
+  writeAt(mon, x, y, "[", colors.white, colors.black)
+  writeAt(mon, x + 1, y, string.rep("#", filled), fg or colors.lime, colors.black)
+  writeAt(mon, x + 1 + filled, y, string.rep("-", empty), colors.gray, colors.black)
+  writeAt(mon, x + w + 1, y, "]", colors.white, colors.black)
 end
 
 local function addButton(id, x1, y1, x2, y2, label, bg, action)
-  buttons[id] = {
-    x1 = x1,
-    y1 = y1,
-    x2 = x2,
-    y2 = y2,
-    label = label,
-    bg = bg,
-    action = action
-  }
+  buttons[id] = {x1=x1,y1=y1,x2=x2,y2=y2,label=label,bg=bg,action=action}
 end
 
-local function drawBar(mon, x, y, width, percent, fg)
-  percent = clamp(percent or 0, 0, 1)
-  width = math.max(1, tonumber(width) or 10)
-
-  local filled = math.floor(width * percent)
-  local empty = width - filled
-
-  writeAt(mon, x, y, "[", colors.white)
-  writeAt(mon, x + 1, y, string.rep("#", filled), fg or colors.lime)
-  writeAt(mon, x + 1 + filled, y, string.rep("-", empty), colors.gray)
-  writeAt(mon, x + width + 1, y, "]", colors.white)
+local function drawButton(mon, b)
+  mon.setBackgroundColor(b.bg)
+  mon.setTextColor(colors.white)
+  for y=b.y1,b.y2 do
+    mon.setCursorPos(b.x1, y)
+    mon.write(string.rep(" ", b.x2-b.x1+1))
+  end
+  local x = b.x1 + math.floor((b.x2-b.x1+1-#b.label)/2)
+  local y = b.y1 + math.floor((b.y2-b.y1)/2)
+  writeAt(mon, x, y, b.label, colors.white, b.bg)
 end
 
-local function getSelected(list, index)
-  if not list or #list == 0 then return nil end
-  index = clamp(index or 1, 1, #list)
-  return list[index]
-end
+local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPage, turbinesPerPage, L, languageFn, updateFn)
+  L = L or {}
 
-local function pageInfo(count, pageSize, page)
-  count = count or 0
-  pageSize = pageSize or 1
-  local pages = math.max(1, math.ceil(count / pageSize))
-  page = clamp(page or 1, 1, pages)
-  local startIndex = ((page - 1) * pageSize) + 1
-  local endIndex = math.min(count, startIndex + pageSize - 1)
-  return page, pages, startIndex, endIndex
-end
+  local panelX1, panelX2 = 62, 88
+  local leftX1, leftX2 = 62, 74
+  local rightX1, rightX2 = 76, 88
+  local smallLeftA, smallLeftB, smallLeftC, smallLeftD = 62, 67, 69, 74
+  local smallRightA, smallRightB, smallRightC, smallRightD = 76, 81, 83, 88
 
-local function manualAllowed(cfg)
-  return not cfg.auto
-end
+  local function drawOptionsMenu()
+    -- Options menu gets the full right panel.
+    -- General controls are hidden while this menu is open.
 
-local function manualButtonColor(cfg, color)
-  if manualAllowed(cfg) then return color end
-  return colors.gray
-end
+    writeAt(mon, panelX1, 2, L.options or "OPTIONEN", colors.yellow)
+    writeAt(mon, panelX1, 3, string.rep("-", panelX2-panelX1+1), colors.gray)
 
-local function autoBlocked(state, L)
-  state.statusLine = L.statusAutoBlocked or "Auto aktiv: Erst auf MANUAL wechseln"
-end
+    addButton("optLang", panelX1, 5, panelX2, 7, (L.language or "LANG") .. ": " .. string.upper(cfg.language or "de"), colors.blue, function()
+      if languageFn then languageFn() end
+      state.showOptions = false
+    end)
 
-local function changeRod(state, cfg, delta, L)
-  if not manualAllowed(cfg) then autoBlocked(state, L) return end
-  local r = getSelected(state.reactors, state.selectedReactor)
-  if not r then return end
-  local rod = reactors.getRod(r)
-  reactors.setRods(r, rod + delta)
-end
+    addButton("optRescan", panelX1, 9, panelX2, 11, L.rescan or "RESCAN", colors.brown, function()
+      if rescanFn then rescanFn() end
+      state.showOptions = false
+      state.statusLine = L.statusRescan or "Peripherals neu gesucht"
+    end)
 
-local function changeFlow(state, cfg, delta, L)
-  if not manualAllowed(cfg) then autoBlocked(state, L) return end
-  local t = getSelected(state.turbines, state.selectedTurbine)
-  if not t then return end
-  local flow = turbines.getFlow(t.p)
-  turbines.setFlow(t.p, flow + delta)
-end
+    addButton("optCalTurbine", panelX1, 13, panelX2, 15, L.calibrateTurbine or "CAL T", colors.orange, function()
+      if control.startCalibration(state) then
+        state.showOptions = false
+      end
+    end)
 
-local function toggleSelectedReactor(state, cfg, L)
-  local r = getSelected(state.reactors, state.selectedReactor)
-  if not r then return end
-  r.enabled = not r.enabled
-  state.statusLine = (L.reactor or "Reaktor") .. " " .. onOff(r.enabled, L)
-end
+    addButton("optCalReactor", panelX1, 17, panelX2, 19, L.calibrateReactor or "CAL R", colors.orange, function()
+      if control.startReactorCalibration(state) then
+        state.showOptions = false
+      end
+    end)
 
-local function toggleSelectedTurbine(state, cfg, L)
-  local t = getSelected(state.turbines, state.selectedTurbine)
-  if not t then return end
-  t.enabled = not t.enabled
-  state.statusLine = (L.turbine or "Turbine") .. " " .. onOff(t.enabled, L)
-end
+    addButton("optUpdate", panelX1, 21, panelX2, 23, L.update or "UPDATE", colors.purple, function()
+      if updateFn then updateFn() end
+      state.showOptions = false
+    end)
 
-local function drawHeader(mon, leftW, L)
-  writeAt(mon, 2, 1, L.title or "ATOMICCONTROL", colors.yellow)
-  writeAt(mon, 2, 2, string.rep("-", math.max(1, leftW - 2)), colors.gray)
-end
-
-local function drawOverview(mon, state, cfg, L, leftW)
-  local storagePct, storageOk = energy.getPercent(state.storage)
-  local barW = math.max(10, leftW - 20)
-
-  writeAt(mon, 2, 4, (L.auto or "Auto") .. ": " .. onOff(cfg.auto, L), cfg.auto and colors.lime or colors.red)
-  writeAt(mon, 18, 4, (L.system or "Anlage") .. ": " .. onOff(state.enabled, L), state.enabled and colors.lime or colors.red)
-  writeAt(mon, 38, 4, (L.mode or "Modus") .. ": " .. tostring(cfg.operationMode or "NORMAL"), colors.lime)
-
-  if storageOk then
-    writeAt(mon, 2, 6, (L.storage or "Speicher") .. ": " .. string.format("%.1f%% ", storagePct * 100), colors.white)
-    drawBar(mon, 18, 6, barW, storagePct, storagePct < 0.25 and colors.red or colors.lime)
-    writeAt(mon, 2, 7, (L.minMax or "Min/Max") .. ": " .. tostring(cfg.storageMin or 0) .. "% / " .. tostring(cfg.storageMax or 0) .. "%", colors.white)
-  else
-    writeAt(mon, 2, 6, L.noStorage or "Speicher: NICHT GEFUNDEN", colors.red)
+    addButton("optBack", panelX1, 45, panelX2, 47, L.back or "BACK", colors.gray, function()
+      state.showOptions = false
+    end)
   end
 
-  local turbineRF = turbines.getTotalRF(state.turbines or {})
-  local passiveRF = reactors.getTotalPassiveRF(state.reactors or {})
-  local totalRF = turbineRF + passiveRF
-  local steamProd = reactors.getTotalSteamProduction(state.reactors or {})
-  local steamUse = turbines.getTotalSteam(state.turbines or {})
 
-  writeAt(mon, 2, 9, (L.rfTurbines or "RF Turbinen") .. ": " .. rfText(turbineRF), colors.lime)
-  writeAt(mon, 2, 10, (L.rfPassive or "RF Passiv") .. ": " .. rfText(passiveRF), colors.lime)
-  writeAt(mon, 2, 11, (L.rfTotal or "RF Gesamt") .. ": " .. rfText(totalRF), colors.lime)
-
-  writeAt(mon, 2, 13, (L.steamProduced or "Dampf-Prod") .. ": " .. shortNumber(steamProd) .. " mB/t", colors.cyan)
-  writeAt(mon, 2, 14, (L.steamUsed or "Dampf-Verbr") .. ": " .. shortNumber(steamUse) .. " mB/t", colors.cyan)
-
-  local eff = tonumber(cfg.steamTransferEfficiency) or 1.00
-  local txt = (L.transferEfficiency or "Dampf-Eff") .. ": " .. string.format("%.1f%%", eff * 100)
-  if state.steamTransferEfficiencyMeasured then
-    txt = txt .. " (" .. string.format("%.1f%%", state.steamTransferEfficiencyMeasured * 100) .. ")"
-  end
-  writeAt(mon, 2, 15, txt, colors.lightBlue)
-
-  writeAt(mon, 2, 17, (L.charge or "Ladung") .. ": " .. rfText(state.storageInRF or 0), colors.lime)
-  writeAt(mon, 2, 18, (L.net or "Netto") .. ": " .. rfText(state.storageNetRF or 0), (state.storageNetRF or 0) >= 0 and colors.lime or colors.red)
-
-  local alarmLevel = alarms.worstLevel(state.alarms or {})
-  local alarmColor = colors.lime
-  if alarmLevel == "WARN" then alarmColor = colors.orange end
-  if alarmLevel == "ERROR" then alarmColor = colors.red end
-
-  writeAt(mon, 2, 20, (L.alarm or "Alarm") .. ": " .. alarmLevel, alarmColor)
-
-  local y = 21
-  for i, a in ipairs(state.alarms or {}) do
-    if i > 3 then break end
-    writeAt(mon, 2, y, "- " .. tostring(a.text), a.level == "ERROR" and colors.red or colors.orange)
-    y = y + 1
-  end
-end
-
-local function drawReactors(mon, state, cfg, L, leftW)
-  local pageSize = 4
-  local page, pages, first, last = pageInfo(#(state.reactors or {}), pageSize, state.reactorPage or 1)
-  state.reactorPage = page
-
-  local y = 26
-  local sel = state.selectedReactor or 1
-
-  writeAt(mon, 2, y, (L.reactors or "Reaktoren") .. ": " .. tostring(#(state.reactors or {})) ..
-    " | " .. (L.selected or "Auswahl") .. ": R" .. tostring(sel) ..
-    " | " .. (L.page or "Seite") .. " " .. page .. "/" .. pages, colors.yellow)
-
-  y = y + 1
-  writeAt(mon, 2, y, "Nr   Typ      Status   Rods     RF/t", colors.gray)
-  y = y + 1
-  writeAt(mon, 2, y, string.rep("-", math.max(1, leftW - 4)), colors.gray)
-  y = y + 1
-
-  if #(state.reactors or {}) == 0 then
-    writeAt(mon, 2, y, L.noReactors or "Keine Reaktoren gefunden", colors.red)
-    return
+  local function manualColor(base)
+    if cfg.auto then return colors.gray end
+    return base
   end
 
-  for i = first, last do
-    local r = state.reactors[i]
-    local prefix = (i == sel) and ">" or " "
-    local typ = r.kind == "ACTIVE" and (L.reactorActive or "AKTIV") or (L.reactorPassive or "PASSIV")
-    local status = onOff(r.enabled, L)
-    local rod = reactors.getRod(r)
-    local rf = reactors.getRF(r)
-
-    local line =
-      prefix .. "R" .. tostring(i) .. "  " ..
-      padRight(typ, 8) .. " " ..
-      padRight(status, 7) .. " " ..
-      padLeft(tostring(math.floor(rod)) .. "%", 6) .. " " ..
-      padLeft(shortNumber(rf), 8)
-
-    writeAt(mon, 2, y, line, i == sel and colors.lime or colors.white)
-    y = y + 1
-  end
-end
-
-local function drawTurbines(mon, state, cfg, L, leftW)
-  local pageSize = 4
-  local page, pages, first, last = pageInfo(#(state.turbines or {}), pageSize, state.turbinePage or 1)
-  state.turbinePage = page
-
-  local y = 36
-  local sel = state.selectedTurbine or 1
-
-  writeAt(mon, 2, y, (L.turbines or "Turbinen") .. ": " .. tostring(#(state.turbines or {})) ..
-    " | " .. (L.selected or "Auswahl") .. ": T" .. tostring(sel) ..
-    " | " .. (L.page or "Seite") .. " " .. page .. "/" .. pages, colors.yellow)
-
-  y = y + 1
-  writeAt(mon, 2, y, "Nr   Status  RPM     mB/t    RF/t", colors.gray)
-  y = y + 1
-  writeAt(mon, 2, y, string.rep("-", math.max(1, leftW - 4)), colors.gray)
-  y = y + 1
-
-  if #(state.turbines or {}) == 0 then
-    writeAt(mon, 2, y, L.noTurbines or "Keine Turbinen gefunden", colors.red)
-    return
-  end
-
-  for i = first, last do
-    local t = state.turbines[i]
-    local prefix = (i == sel) and ">" or " "
-    local rpm = turbines.getRPM(t.p)
-    local flow = turbines.getFlow(t.p)
-    local rf = turbines.getRF(t.p)
-    local status = onOff(t.enabled, L)
-
-    if t.enabled and not turbines.getInductor(t.p) then
-      status = "FREE"
+  local function manualBlocked()
+    if cfg.auto then
+      state.statusLine = L.statusAutoBlocked or "Auto aktiv: Erst auf MANUAL wechseln"
+      return true
     end
-
-    local line =
-      prefix .. "T" .. tostring(i) .. "  " ..
-      padRight(status, 7) .. " " ..
-      padLeft(math.floor(rpm), 6) .. " " ..
-      padLeft(math.floor(flow), 7) .. " " ..
-      padLeft(shortNumber(rf), 8)
-
-    writeAt(mon, 2, y, line, i == sel and colors.lime or colors.white)
-    y = y + 1
+    return false
   end
-end
 
-local function drawControlButtons(mon, state, cfg, L, x1, x2, h, saveFn, rescanFn)
-  local mid = x1 + math.floor((x2 - x1) / 2)
-  local lx1, lx2 = x1, mid - 1
-  local rx1, rx2 = mid + 1, x2
+  if state.showOptions then
+    drawOptionsMenu()
+    return
+  end
 
-  writeAt(mon, x1, 2, L.general or "ALLGEMEIN", colors.yellow)
+  writeAt(mon, panelX1, 2, L.general or "ALLGEMEIN", colors.yellow)
+  writeAt(mon, panelX1, 3, string.rep("-", panelX2-panelX1+1), colors.gray)
 
-  addButton("auto", lx1, 4, lx2, 6, L.auto or "AUTO", cfg.auto and colors.green or colors.gray, function()
+  addButton("auto", leftX1,4,leftX2,6,cfg.auto and "AUTO" or (L.manual or "MANUAL"), cfg.auto and colors.green or colors.gray, function()
     cfg.auto = not cfg.auto
     state.statusLine = cfg.auto and (L.statusAutoEnabled or "Auto-Modus aktiviert") or (L.statusManualEnabled or "Manuell aktiviert")
   end)
 
-  addButton("enabled", rx1, 4, rx2, 6, onOff(state.enabled, L), state.enabled and colors.green or colors.red, function()
+  addButton("power", rightX1,4,rightX2,6,state.enabled and "ON" or "OFF", state.enabled and colors.green or colors.red, function()
     state.enabled = not state.enabled
     cfg.enabled = state.enabled
     state.statusLine = state.enabled and (L.statusSystemOn or "Anlage eingeschaltet") or (L.statusSystemOff or "Anlage ausgeschaltet")
   end)
 
-  addButton("mode", x1, 8, x2, 10, (L.mode or "MODUS") .. ": " .. tostring(cfg.operationMode or "NORMAL"), cfg.operationMode == "CYANITE" and colors.red or colors.cyan, function()
-    if cfg.operationMode == "CYANITE" then
-      cfg.operationMode = "NORMAL"
-    else
+  addButton("mode", leftX1,8,rightX2,10,"MODUS: "..cfg.operationMode, cfg.operationMode=="NORMAL" and colors.cyan or colors.red, function()
+    if cfg.operationMode == "NORMAL" then
       cfg.operationMode = "CYANITE"
+    else
+      cfg.operationMode = "NORMAL"
     end
-    state.statusLine = (L.statusMode or "Modus: ") .. tostring(cfg.operationMode)
+    state.statusLine = (L.statusMode or "Modus: ") .. cfg.operationMode
   end)
 
-  addButton("minDown", lx1, 12, lx2, 14, L.minDown or "MIN -", colors.blue, function()
-    cfg.storageMin = clamp((cfg.storageMin or 30) - 5, 0, 100)
+  addButton("minDown", leftX1,12,leftX2,14,L.minDown or "MIN -", colors.purple, function() cfg.storageMin = utils.clamp(cfg.storageMin-5,0,cfg.storageMax-5) end)
+  addButton("minUp", rightX1,12,rightX2,14,L.minUp or "MIN +", colors.purple, function() cfg.storageMin = utils.clamp(cfg.storageMin+5,0,cfg.storageMax-5) end)
+  addButton("maxDown", leftX1,16,leftX2,18,L.maxDown or "MAX -", colors.purple, function() cfg.storageMax = utils.clamp(cfg.storageMax-5,cfg.storageMin+5,100) end)
+  addButton("maxUp", rightX1,16,rightX2,18,L.maxUp or "MAX +", colors.purple, function() cfg.storageMax = utils.clamp(cfg.storageMax+5,cfg.storageMin+5,100) end)
+
+  writeAt(mon, panelX1,20,string.rep("-", panelX2-panelX1+1), colors.gray)
+  writeAt(mon, leftX1,21,L.reactor or "REAKTOR", colors.yellow)
+  writeAt(mon, rightX1,21,L.turbine or "TURBINE", colors.yellow)
+
+  addButton("reactorToggle", leftX1,23,leftX2,25,L.enabledToggle or "EIN/AUS", manualColor(colors.brown), function()
+    if manualBlocked() then return end
+    local r = state.reactors[state.selectedReactor]
+    if r then r.enabled = not r.enabled; if not r.enabled then reactors.setRods(r,100) end end
   end)
 
-  addButton("minUp", rx1, 12, rx2, 14, L.minUp or "MIN +", colors.blue, function()
-    cfg.storageMin = clamp((cfg.storageMin or 30) + 5, 0, 100)
+  addButton("rodDown", leftX1,27,leftX2,29,L.rodDown or "-ROD", manualColor(colors.gray), function()
+    if manualBlocked() then return end
+    local r = state.reactors[state.selectedReactor]; if r then reactors.setRods(r, reactors.getRod(r)-1) end
   end)
 
-  addButton("maxDown", lx1, 16, lx2, 18, L.maxDown or "MAX -", colors.purple, function()
-    cfg.storageMax = clamp((cfg.storageMax or 90) - 5, 0, 100)
+  addButton("rodUp", leftX1,31,leftX2,33,L.rodUp or "+ROD", manualColor(colors.gray), function()
+    if manualBlocked() then return end
+    local r = state.reactors[state.selectedReactor]; if r then reactors.setRods(r, reactors.getRod(r)+1) end
   end)
 
-  addButton("maxUp", rx1, 16, rx2, 18, L.maxUp or "MAX +", colors.purple, function()
-    cfg.storageMax = clamp((cfg.storageMax or 90) + 5, 0, 100)
+  addButton("reactorDown", smallLeftA,35,smallLeftB,37,"^", colors.blue, function()
+    if #state.reactors>0 then state.selectedReactor=state.selectedReactor-1; if state.selectedReactor<1 then state.selectedReactor=#state.reactors end; state.reactorPage=math.ceil(state.selectedReactor/reactorsPerPage) end
   end)
 
-  writeAt(mon, x1, 20, string.rep("-", math.max(1, x2 - x1 + 1)), colors.gray)
-  writeAt(mon, lx1, 21, L.reactor or "REAKTOR", colors.yellow)
-  writeAt(mon, rx1, 21, L.turbine or "TURBINE", colors.yellow)
-
-  addButton("reactorToggle", lx1, 23, lx2, 25, L.enabledToggle or "EIN/AUS", colors.brown, function()
-    toggleSelectedReactor(state, cfg, L)
+  addButton("reactorUp", smallLeftC,35,smallLeftD,37,"v", colors.blue, function()
+    if #state.reactors>0 then state.selectedReactor=state.selectedReactor+1; if state.selectedReactor>#state.reactors then state.selectedReactor=1 end; state.reactorPage=math.ceil(state.selectedReactor/reactorsPerPage) end
   end)
 
-  addButton("turbineToggle", rx1, 23, rx2, 25, L.enabledToggle or "EIN/AUS", colors.brown, function()
-    toggleSelectedTurbine(state, cfg, L)
+  addButton("rPageDown", smallLeftA,39,smallLeftB,41,"<", colors.lightBlue, function()
+    local pages=math.max(1, math.ceil(math.max(#state.reactors,1)/reactorsPerPage)); state.reactorPage=state.reactorPage-1; if state.reactorPage<1 then state.reactorPage=pages end; state.selectedReactor=((state.reactorPage-1)*reactorsPerPage)+1
   end)
 
-  addButton("rodDown", lx1, 27, lx2, 29, L.rodDown or "-ROD", manualButtonColor(cfg, colors.gray), function()
-    changeRod(state, cfg, -5, L)
+  addButton("rPageUp", smallLeftC,39,smallLeftD,41,">", colors.lightBlue, function()
+    local pages=math.max(1, math.ceil(math.max(#state.reactors,1)/reactorsPerPage)); state.reactorPage=state.reactorPage+1; if state.reactorPage>pages then state.reactorPage=1 end; state.selectedReactor=((state.reactorPage-1)*reactorsPerPage)+1
   end)
 
-  addButton("flowDown", rx1, 27, rx2, 29, L.flowDown or "-FLOW", manualButtonColor(cfg, colors.gray), function()
-    changeFlow(state, cfg, -25, L)
+  addButton("turbToggle", rightX1,23,rightX2,25,L.enabledToggle or "EIN/AUS", manualColor(colors.brown), function()
+    if manualBlocked() then return end
+    local t = state.turbines[state.selectedTurbine]
+    if t then t.enabled = not t.enabled; if not t.enabled then turbines.setFlow(t.p,0); turbines.setInductor(t.p,false); turbines.setActive(t.p,false) end end
   end)
 
-  addButton("rodUp", lx1, 31, lx2, 33, L.rodUp or "+ROD", manualButtonColor(cfg, colors.gray), function()
-    changeRod(state, cfg, 5, L)
-  end)
+  addButton("flowDown", rightX1,27,rightX2,29,L.flowDown or "-FLOW", cfg.auto and colors.cyan or colors.gray, function()
+    local t = state.turbines[state.selectedTurbine]
+    if not t then return end
 
-  addButton("flowUp", rx1, 31, rx2, 33, L.flowUp or "+FLOW", manualButtonColor(cfg, colors.gray), function()
-    changeFlow(state, cfg, 25, L)
-  end)
-
-  addButton("reactorPrev", lx1, 35, lx1 + math.floor((lx2 - lx1) / 2) - 1, 37, "^", colors.lightBlue, function()
-    state.selectedReactor = clamp((state.selectedReactor or 1) - 1, 1, math.max(1, #(state.reactors or {})))
-  end)
-
-  addButton("reactorNext", lx1 + math.floor((lx2 - lx1) / 2) + 1, 35, lx2, 37, "v", colors.lightBlue, function()
-    state.selectedReactor = clamp((state.selectedReactor or 1) + 1, 1, math.max(1, #(state.reactors or {})))
-  end)
-
-  addButton("turbinePrev", rx1, 35, rx1 + math.floor((rx2 - rx1) / 2) - 1, 37, "^", colors.lightBlue, function()
-    state.selectedTurbine = clamp((state.selectedTurbine or 1) - 1, 1, math.max(1, #(state.turbines or {})))
-  end)
-
-  addButton("turbineNext", rx1 + math.floor((rx2 - rx1) / 2) + 1, 35, rx2, 37, "v", colors.lightBlue, function()
-    state.selectedTurbine = clamp((state.selectedTurbine or 1) + 1, 1, math.max(1, #(state.turbines or {})))
-  end)
-
-  addButton("reactorPagePrev", lx1, 39, lx1 + math.floor((lx2 - lx1) / 2) - 1, 41, "<", colors.lightBlue, function()
-    state.reactorPage = math.max(1, (state.reactorPage or 1) - 1)
-  end)
-
-  addButton("reactorPageNext", lx1 + math.floor((lx2 - lx1) / 2) + 1, 39, lx2, 41, ">", colors.lightBlue, function()
-    state.reactorPage = (state.reactorPage or 1) + 1
-  end)
-
-  addButton("turbinePagePrev", rx1, 39, rx1 + math.floor((rx2 - rx1) / 2) - 1, 41, "<", colors.lightBlue, function()
-    state.turbinePage = math.max(1, (state.turbinePage or 1) - 1)
-  end)
-
-  addButton("turbinePageNext", rx1 + math.floor((rx2 - rx1) / 2) + 1, 39, rx2, 41, ">", colors.lightBlue, function()
-    state.turbinePage = (state.turbinePage or 1) + 1
-  end)
-
-  addButton("options", x1, h - 4, x2, h - 2, L.option or "OPTION", colors.orange, function()
-    state.showOptions = true
-  end)
-end
-
-local function drawOptions(mon, state, cfg, L, x1, x2, h, saveFn, rescanFn, languageFn, updateFn)
-  writeAt(mon, x1, 2, L.options or "OPTIONEN", colors.yellow)
-  writeAt(mon, x1, 3, string.rep("-", math.max(1, x2 - x1 + 1)), colors.gray)
-
-  addButton("optLang", x1, 5, x2, 7, (L.language or "LANG") .. ": " .. string.upper(cfg.language or "de"), colors.blue, function()
-    if languageFn then languageFn() end
-    state.showOptions = false
-  end)
-
-  addButton("optRescan", x1, 9, x2, 11, L.rescan or "RESCAN", colors.brown, function()
-    if rescanFn then rescanFn() end
-    state.showOptions = false
-    state.statusLine = L.statusRescan or "Peripherals neu gesucht"
-  end)
-
-  addButton("optCalT", x1, 13, x2, 15, L.calibrateTurbine or "CAL T", colors.orange, function()
-    if control.startCalibration(state) then
-      state.showOptions = false
+    if cfg.auto then
+      local calibrated = getTurbineCalibration(cfg, t)
+      if calibrated then
+        setTurbineCalibration(cfg, t, math.max(0, calibrated - 1))
+        state.configDirty = true
+        state.statusLine = "Kal Flow T" .. tostring(state.selectedTurbine) .. ": " .. tostring(math.max(0, calibrated - 1)) .. " mB/t"
+      else
+        state.statusLine = "Turbine nicht kalibriert"
+      end
+      return
     end
+
+    local tObj = t.p
+    turbines.setFlow(tObj, turbines.getFlow(tObj)-25)
   end)
 
-  addButton("optCalR", x1, 17, x2, 19, L.calibrateReactor or "CAL R", colors.orange, function()
-    if control.startReactorCalibration(state) then
-      state.showOptions = false
+  addButton("flowUp", rightX1,31,rightX2,33,L.flowUp or "+FLOW", cfg.auto and colors.cyan or colors.gray, function()
+    local t = state.turbines[state.selectedTurbine]
+    if not t then return end
+
+    if cfg.auto then
+      local calibrated = getTurbineCalibration(cfg, t)
+      if calibrated then
+        setTurbineCalibration(cfg, t, calibrated + 1)
+        state.configDirty = true
+        state.statusLine = "Kal Flow T" .. tostring(state.selectedTurbine) .. ": " .. tostring(calibrated + 1) .. " mB/t"
+      else
+        state.statusLine = "Turbine nicht kalibriert"
+      end
+      return
     end
+
+    local tObj = t.p
+    turbines.setFlow(tObj, turbines.getFlow(tObj)+25)
   end)
 
-  addButton("optUpdate", x1, 21, x2, 23, L.update or "UPDATE", colors.purple, function()
-    if updateFn then updateFn() end
-    state.showOptions = false
+  addButton("turbDown", smallRightA,35,smallRightB,37,"^", colors.blue, function()
+    if #state.turbines>0 then state.selectedTurbine=state.selectedTurbine-1; if state.selectedTurbine<1 then state.selectedTurbine=#state.turbines end; state.turbinePage=math.ceil(state.selectedTurbine/turbinesPerPage) end
   end)
 
-  addButton("optBack", x1, h - 4, x2, h - 2, L.back or "BACK", colors.gray, function()
-    state.showOptions = false
+  addButton("turbUp", smallRightC,35,smallRightD,37,"v", colors.blue, function()
+    if #state.turbines>0 then state.selectedTurbine=state.selectedTurbine+1; if state.selectedTurbine>#state.turbines then state.selectedTurbine=1 end; state.turbinePage=math.ceil(state.selectedTurbine/turbinesPerPage) end
+  end)
+
+  addButton("pageDown", smallRightA,39,smallRightB,41,"<", colors.lightBlue, function()
+    local pages=math.max(1, math.ceil(math.max(#state.turbines,1)/turbinesPerPage)); state.turbinePage=state.turbinePage-1; if state.turbinePage<1 then state.turbinePage=pages end; state.selectedTurbine=((state.turbinePage-1)*turbinesPerPage)+1
+  end)
+
+  addButton("pageUp", smallRightC,39,smallRightD,41,">", colors.lightBlue, function()
+    local pages=math.max(1, math.ceil(math.max(#state.turbines,1)/turbinesPerPage)); state.turbinePage=state.turbinePage+1; if state.turbinePage>pages then state.turbinePage=1 end; state.selectedTurbine=((state.turbinePage-1)*turbinesPerPage)+1
+  end)
+
+  addButton("options", panelX1,45,panelX2,47,L.option or "OPTION", colors.brown, function()
+    state.showOptions = not state.showOptions
   end)
 end
 
 function M.draw(state, cfg, saveFn, rescanFn, L, languageFn, updateFn)
   L = L or {}
-  buttons = {}
-
   local mon = state.monitor
+  buttons = {}
   if not mon then return buttons end
+  local w,h = mon.getSize()
 
-  local w, h = mon.getSize()
-  local panelW = math.max(24, math.floor(w * 0.28))
-  local leftW = w - panelW - 2
-  if leftW < 50 then
-    leftW = math.max(40, w - 28)
-    panelW = w - leftW - 2
-  end
+  state.selectedReactor = utils.clamp(state.selectedReactor or 1, 1, math.max(#state.reactors, 1))
+  state.selectedTurbine = utils.clamp(state.selectedTurbine or 1, 1, math.max(#state.turbines, 1))
+  state.reactorPage = utils.clamp(state.reactorPage or 1, 1, 999)
+  state.turbinePage = utils.clamp(state.turbinePage or 1, 1, 999)
 
-  local panelX1 = leftW + 3
-  local panelX2 = w - 2
+  local storagePct, storageOk = energy.getPercent(state.storage)
+  local steamPct, steamOk = reactors.getAverageSteamPercent(state.reactors)
+  local turbineRF = turbines.getTotalRF(state.turbines)
+  local passiveRF = reactors.getTotalPassiveRF(state.reactors)
+  local totalRF = turbineRF + passiveRF
+  local totalSteamUse = turbines.getTotalSteam(state.turbines)
+  local totalSteamProd = reactors.getTotalSteamProduction(state.reactors)
+  local mbPerRF = turbineRF > 0 and totalSteamUse / turbineRF or 0
 
+  mon.setTextScale(0.5)
   mon.setBackgroundColor(colors.black)
   mon.setTextColor(colors.white)
   mon.clear()
 
-  drawHeader(mon, leftW, L)
-  drawOverview(mon, state, cfg, L, leftW)
-  drawReactors(mon, state, cfg, L, leftW)
-  drawTurbines(mon, state, cfg, L, leftW)
+  writeAt(mon,2,1,L.title or "ATOMICCONTROL",colors.yellow)
+  writeAt(mon,2,2,string.rep("-",54),colors.gray)
+  writeAt(mon,2,4,(L.auto or "Auto")..": "..utils.boolText(cfg.auto,L),cfg.auto and colors.lime or colors.orange)
+  writeAt(mon,16,4,(L.system or "Anlage")..": "..utils.boolText(state.enabled,L),state.enabled and colors.lime or colors.red)
+  writeAt(mon,34,4,(L.mode or "Modus")..": "..cfg.operationMode,cfg.operationMode=="NORMAL" and colors.cyan or colors.red)
 
-  writeAt(mon, 2, h, tostring(state.statusLine or ""), colors.lightGray)
-
-  writeAt(mon, leftW + 1, 1, "|", colors.gray)
-  for y = 2, h do
-    writeAt(mon, leftW + 1, y, "|", colors.gray)
-  end
-
-  if state.showOptions then
-    drawOptions(mon, state, cfg, L, panelX1, panelX2, h, saveFn, rescanFn, languageFn, updateFn)
+  if storageOk then
+    writeAt(mon,2,6,(L.storage or "Speicher")..": "..math.floor(storagePct*100).."%")
+    drawBar(mon,15,6,32,storagePct, storagePct*100>=cfg.storageMax and colors.red or colors.lime)
   else
-    drawControlButtons(mon, state, cfg, L, panelX1, panelX2, h, saveFn, rescanFn)
+    writeAt(mon,2,6,L.noStorage or "Speicher: NICHT GEFUNDEN",colors.red)
   end
 
-  for _, b in pairs(buttons) do
-    drawButton(mon, b)
+  writeAt(mon,2,7,(L.minMax or "Min/Max")..": "..cfg.storageMin.."% / "..cfg.storageMax.."%")
+
+  if steamOk then
+    writeAt(mon,2,9,(L.steam or "Dampf")..":   "..math.floor(steamPct*100).."%")
+    drawBar(mon,15,9,32,steamPct,colors.cyan)
+  else
+    writeAt(mon,2,9,L.noSteam or "Dampf:   n/a",colors.gray)
   end
+
+  writeAt(mon,2,11,(L.rfTurbines or "RF Turbinen")..": "..utils.formatRF(turbineRF),colors.lime)
+  writeAt(mon,2,12,(L.rfPassive or "RF Passiv")..":   "..utils.formatRF(passiveRF),colors.lime)
+  writeAt(mon,2,13,(L.rfTotal or "RF Gesamt")..":   "..utils.formatRF(totalRF),colors.lime)
+  writeAt(mon,2,14,(L.steamUsed or "Dampf-Verbr")..": "..math.floor(totalSteamUse).." mB/t",colors.orange)
+  writeAt(mon,2,15,(L.steamProduced or "Dampf-Prod")..":  "..math.floor(totalSteamProd).." mB/t",colors.cyan)
+  writeAt(mon,2,16,(L.efficiency or "Effizienz")..":   "..string.format("%.4f",mbPerRF).." mB/RF",colors.cyan)
+  writeAt(mon,2,17,(L.charge or "Ladung")..":      "..utils.formatRF(state.storageInRF or 0),colors.cyan)
+  writeAt(mon,2,18,(L.net or "Netto")..":       "..utils.formatRF(state.storageNetRF or 0),(state.storageNetRF or 0)>=0 and colors.lime or colors.red)
+
+  local worst = alarms.worstLevel(state.alarms or {})
+  local ac = worst=="ERROR" and colors.red or (worst=="WARN" and colors.orange or colors.lime)
+  writeAt(mon,40,18,(L.alarm or "Alarm")..": "..worst,ac)
+
+  local reactorListStartY, reactorListEndY = 22, 27
+  local reactorsPerPage = math.max(1, reactorListEndY-reactorListStartY+1)
+  local totalReactorPages = math.max(1, math.ceil(math.max(#state.reactors,1)/reactorsPerPage))
+  state.reactorPage = utils.clamp(state.reactorPage,1,totalReactorPages)
+  local firstReactor = ((state.reactorPage-1)*reactorsPerPage)+1
+  local lastReactor = math.min(#state.reactors, firstReactor+reactorsPerPage-1)
+
+  writeAt(mon,2,20,(L.reactors or "Reaktoren")..": "..#state.reactors.." | "..(L.selected or "Auswahl")..": R"..state.selectedReactor.." | "..(L.page or "Seite").." "..state.reactorPage.."/"..totalReactorPages,colors.yellow)
+  writeAt(mon,2,21,"Nr",colors.gray); writeAt(mon,8,21,"Typ",colors.gray); writeAt(mon,18,21,L.status or "Status",colors.gray); writeAt(mon,29,21,L.rods or "Rods",colors.gray); writeAt(mon,39,21,"RF/t",colors.gray)
+  writeAt(mon,2,22,string.rep("-",48),colors.gray)
+  local y=23
+  for i=firstReactor,lastReactor do
+    local r=state.reactors[i]
+    local sel=i==state.selectedReactor
+    local kind=r.kind=="ACTIVE" and (L.reactorActive or "AKTIV") or (L.reactorPassive or "PASSIV")
+    writeAt(mon,2,y,(sel and ">" or " ").."R"..i, sel and colors.lime or colors.yellow)
+    writeAt(mon,8,y,utils.padRight(kind,7), r.kind=="ACTIVE" and colors.cyan or colors.orange)
+    writeAt(mon,18,y,utils.padRight(utils.boolText(r.enabled,L),6), r.enabled and colors.lime or colors.red)
+    writeAt(mon,29,y,utils.padLeft(reactors.getRod(r).."%",5),colors.white)
+    writeAt(mon,39,y,utils.padLeft(utils.formatShort(reactors.getRF(r)),8),colors.lime)
+    y=y+1
+  end
+
+  local listStartY = 30
+  local listEndY = math.max(listStartY, h-2)
+  local turbinesPerPage = math.max(1, listEndY-listStartY-1)
+  local totalPages = math.max(1, math.ceil(math.max(#state.turbines,1)/turbinesPerPage))
+  state.turbinePage = utils.clamp(state.turbinePage,1,totalPages)
+  local firstTurbine = ((state.turbinePage-1)*turbinesPerPage)+1
+  local lastTurbine = math.min(#state.turbines, firstTurbine+turbinesPerPage-1)
+
+  writeAt(mon,2,29,(L.turbines or "Turbinen")..": "..#state.turbines.." | "..(L.selected or "Auswahl")..": T"..state.selectedTurbine.." | "..(L.page or "Seite").." "..state.turbinePage.."/"..totalPages,colors.yellow)
+  writeAt(mon,2,30,"Nr",colors.gray)
+  writeAt(mon,8,30,L.status or "Status",colors.gray)
+  writeAt(mon,18,30,"RPM",colors.gray)
+  writeAt(mon,27,30,"Flow",colors.gray)
+  writeAt(mon,36,30,"Kal.",colors.gray)
+  writeAt(mon,45,30,"RF/t",colors.gray)
+  writeAt(mon,54,30,"mB/RF",colors.gray)
+  writeAt(mon,2,31,string.rep("-",58),colors.gray)
+  y=32
+  for i=firstTurbine,lastTurbine do
+    local e=state.turbines[i]
+    local rpm=turbines.getRPM(e.p)
+    local steam=turbines.getSteam(e.p)
+    local rf=turbines.getRF(e.p)
+    local eff=rf>0 and steam/rf or 0
+    local rpmColor=colors.lime
+    if rpm<1700 or rpm>1850 then rpmColor=colors.red elseif rpm<1750 then rpmColor=colors.orange end
+    if rpm==0 then rpmColor=colors.gray end
+
+    local tStatus = L.off or "AUS"
+    local tStatusColor = colors.red
+    if e.enabled then
+      if turbines.getInductor(e.p) then
+        tStatus = L.on or "AN"
+        tStatusColor = colors.lime
+      else
+        tStatus = L.free or "FREI"
+        tStatusColor = colors.orange
+      end
+    end
+
+    local calFlow = getTurbineCalibration(cfg, e)
+    local calText = "---"
+    if calFlow then
+      calText = tostring(math.floor(calFlow))
+    end
+
+    writeAt(mon,2,y,(i==state.selectedTurbine and ">" or " ").."T"..i, i==state.selectedTurbine and colors.lime or colors.yellow)
+    writeAt(mon,8,y,utils.padRight(tStatus,6), tStatusColor)
+    writeAt(mon,18,y,utils.padLeft(math.floor(rpm),5),rpmColor)
+    writeAt(mon,27,y,utils.padLeft(math.floor(turbines.getFlow(e.p)),6),colors.orange)
+    writeAt(mon,36,y,utils.padLeft(calText,6),calFlow and colors.cyan or colors.gray)
+    writeAt(mon,45,y,utils.padLeft(utils.formatShort(rf),7),colors.lime)
+    writeAt(mon,54,y,utils.padLeft(string.format("%.4f",eff),7),colors.cyan)
+    y=y+1
+  end
+
+  drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPage, turbinesPerPage, L, languageFn, updateFn)
+
+  for _, b in pairs(buttons) do drawButton(mon,b) end
+  writeAt(mon,2,h,utils.padRight(state.statusLine or "", math.max(10,w-2)), colors.lightGray)
 
   return buttons
 end
 
-function M.handleTouch(btns, x, y)
-  btns = btns or buttons
-
-  for _, b in pairs(btns or {}) do
-    if x >= b.x1 and x <= b.x2 and y >= b.y1 and y <= b.y2 then
-      if b.action then b.action() end
+function M.handleTouch(buttons, x, y)
+  for _, b in pairs(buttons or {}) do
+    if x>=b.x1 and x<=b.x2 and y>=b.y1 and y<=b.y2 then
+      b.action()
       return true
     end
   end
-
   return false
 end
 

@@ -25,7 +25,7 @@ end
 function M.reactorHasSteam(p)
   if not p then return false end
 
-  -- Best source of truth for Extreme Reactors:
+  -- Reliable Extreme Reactors source of truth:
   -- passive reactor => false
   -- active reactor  => true
   if M.hasMethod(p, "isActivelyCooled") then
@@ -35,22 +35,16 @@ function M.reactorHasSteam(p)
     end
   end
 
-  -- Fallback for versions/mods that expose coolant capacity instead.
   if M.hasMethod(p, "getCoolantAmountMax") then
     local max = utils.safe(function() return p.getCoolantAmountMax() end, nil)
     max = asNumber(max)
-    if max ~= nil then
-      return max > 0
-    end
+    if max ~= nil then return max > 0 end
   end
 
-  -- Fallback for versions/mods with hot-fluid capacity.
   if M.hasMethod(p, "getHotFluidAmountMax") then
     local max = utils.safe(function() return p.getHotFluidAmountMax() end, nil)
     max = asNumber(max)
-    if max ~= nil then
-      return max > 0
-    end
+    if max ~= nil then return max > 0 end
   end
 
   if M.hasMethod(p, "getHotFluidStats") then
@@ -63,14 +57,10 @@ function M.reactorHasSteam(p)
         asNumber(stats.max) or
         asNumber(stats.amountMax)
 
-      if capacity ~= nil then
-        return capacity > 0
-      end
+      if capacity ~= nil then return capacity > 0 end
     end
   end
 
-  -- Last fallback: production method with actual production.
-  -- Method presence alone is not enough because passive reactors may expose it too.
   if M.hasMethod(p, "getHotFluidProducedLastTick") then
     local produced = utils.safe(function() return p.getHotFluidProducedLastTick() end, nil)
     produced = asNumber(produced)

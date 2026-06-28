@@ -5,7 +5,6 @@ local TurbineController = require("turbinecontroller")
 local ActiveReactorController = require("activereactorcontroller")
 local PassiveReactorController = require("passivereactorcontroller")
 local ReactorCalibration = require("reactorcalibration")
-local SteamManager = require("steammanager")
 
 local M = {}
 
@@ -55,8 +54,6 @@ function M.update(state, cfg, L)
   local storageFull = storageHigh and cfg.operationMode ~= "CYANITE"
 
   local turbinesNeedSteam = TurbineController.update(state, cfg, storageFull)
-
-  SteamManager.learnTransferEfficiency(state, cfg)
 
   ActiveReactorController.update(
     state,

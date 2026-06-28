@@ -27,17 +27,14 @@ end
 function M.getStored(storage)
   if not storage then return 0, 1, false end
 
-  -- Common FE/RF style
   local stored = call(storage, "getEnergyStored")
   local max = call(storage, "getMaxEnergyStored")
   if stored and max and max > 0 then return stored, max, true end
 
-  -- Extreme Reactors Energizer
   stored = call(storage, "getEnergyStored")
   max = call(storage, "getEnergyCapacity")
   if stored and max and max > 0 then return stored, max, true end
 
-  -- Extreme Reactors stats table
   local stats = call(storage, "getEnergyStats")
   if type(stats) == "table" then
     stored = stats.energyStored
@@ -45,7 +42,6 @@ function M.getStored(storage)
     if stored and max and max > 0 then return stored, max, true end
   end
 
-  -- Alternative generic names
   stored = call(storage, "getEnergy")
   max = call(storage, "getMaxEnergy")
   if stored and max and max > 0 then return stored, max, true end
@@ -58,7 +54,6 @@ function M.getStored(storage)
   max = call(storage, "getMaxRFStored")
   if stored and max and max > 0 then return stored, max, true end
 
-  -- Percentage-only fallback
   local pct = call(storage, "getEnergyFilledPercentage")
   if pct then
     if pct > 1 then pct = pct / 100 end
@@ -77,7 +72,6 @@ end
 local function getDirectIo(storage)
   if not storage then return nil end
 
-  -- Best case: separate inserted/extracted values.
   local inserted = call(storage, "getEnergyInsertedLastTick")
   local extracted = call(storage, "getEnergyExtractedLastTick")
 
@@ -92,7 +86,6 @@ local function getDirectIo(storage)
     }
   end
 
-  -- Some APIs provide one IO value.
   local io = call(storage, "getEnergyIoLastTick")
   if io ~= nil then
     io = tonumber(io) or 0
@@ -104,7 +97,6 @@ local function getDirectIo(storage)
     end
   end
 
-  -- Stats table fallback
   local stats = call(storage, "getEnergyStats")
   if type(stats) == "table" then
     inserted = tonumber(stats.energyInsertedLastTick)

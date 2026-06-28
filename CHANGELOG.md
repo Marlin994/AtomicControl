@@ -1,16 +1,20 @@
 # Changelog
 
-## 3.0.0
+## 3.2.0
 
-- Rebuilt AtomicControl as a clean integrated release.
-- Fixed missing module issues.
-- Added complete reactor calibration module.
-- Added calibrated active reactor control.
-- Added PID-style turbine flow controller.
-- Added adaptive turbine calibration learning.
-- Removed ECO mode for now.
-- NORMAL now targets turbine demand with 3% steam reserve.
-- Updated installer to include every required module.
-- Updated README.
-
+- Clean integrated repository release.
+- Repaired `ui.lua` to avoid accumulated syntax errors from patch stacking.
+- Options menu now consistently contains:
+  - Language
+  - Rescan
+  - CAL T
+  - CAL R
+  - Update
+  - Back
+- Active/passive reactor detection now uses `isActivelyCooled()` first.
+- Energy storage detection supports Extreme Reactors Energizer.
+- Update now reboots after successful installation.
+- Updates no longer start language/autostart setup when an existing config is found.
+- Reactor calibration uses 5% rod steps.
+- README updated.
 
