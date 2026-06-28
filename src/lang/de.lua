@@ -50,8 +50,6 @@ return {
   rodUp = "+ROD",
   flowDown = "-FLOW",
   flowUp = "+FLOW",
-  calibrateTurbine = "KAL T",
-  calibrateReactor = "KAL R",
 
   reactorActive = "AKTIV",
   reactorPassive = "PASSIV",
@@ -94,5 +92,15 @@ return {
   alarmActiveNoTurbine = "Aktiver R%d ohne Turbine",
   alarmNoSteam = "R%d kein Dampf",
   alarmAllReactorsOff = "Alle Reaktoren AUS",
-  transferEfficiency = "Dampf-Eff"
+  transferEfficiency = "Dampf-Eff",
+  optionsSystem = "System",
+  optionsCalibration = "Kalibrierung",
+  optionsSteam = "Dampf",
+  optionsMaintenance = "Wartung",
+  liveEfficiency = "Live",
+  applyLiveEfficiency = "EFF UEBERN.",
+  statusEfficiencyApplied = "Dampf-Eff uebernommen: ",
+  statusEfficiencyNoLive = "Kein Live-Wert verfuegbar",
+  calibrateTurbine = "KAL TURB.",
+  calibrateReactor = "KAL REAK.",
 }

@@ -50,8 +50,6 @@ return {
   rodUp = "+ROD",
   flowDown = "-FLOW",
   flowUp = "+FLOW",
-  calibrateTurbine = "CAL T",
-  calibrateReactor = "CAL R",
 
   reactorActive = "ACTIVE",
   reactorPassive = "PASSIVE",
@@ -94,5 +92,15 @@ return {
   alarmActiveNoTurbine = "Active R%d without turbine",
   alarmNoSteam = "R%d no steam",
   alarmAllReactorsOff = "All reactors OFF",
-  transferEfficiency = "Steam Eff"
+  transferEfficiency = "Steam Eff",
+  optionsSystem = "System",
+  optionsCalibration = "Calibration",
+  optionsSteam = "Steam",
+  optionsMaintenance = "Maintenance",
+  liveEfficiency = "Live",
+  applyLiveEfficiency = "APPLY EFF",
+  statusEfficiencyApplied = "Steam eff applied: ",
+  statusEfficiencyNoLive = "No live value available",
+  calibrateTurbine = "CAL TURB.",
+  calibrateReactor = "CAL REACT.",
 }

@@ -81,9 +81,15 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
     -- Options menu gets the full right panel.
     -- General controls are hidden while this menu is open.
 
+    local liveEff = state.steamTransferEfficiencyMeasured
+    if (not liveEff) and totalSteamProd and totalSteamProd > 0 and totalSteamUse and totalSteamUse > 0 then
+      liveEff = utils.clamp(totalSteamUse / totalSteamProd, 0.50, 1.10)
+    end
+
     writeAt(mon, panelX1, 2, L.options or "OPTIONEN", colors.yellow)
     writeAt(mon, panelX1, 3, string.rep("-", panelX2-panelX1+1), colors.gray)
 
+    writeAt(mon, panelX1, 4, L.optionsSystem or "System", colors.lightGray)
     addButton("optLang", panelX1, 5, panelX2, 7, (L.language or "LANG") .. ": " .. string.upper(cfg.language or "de"), colors.blue, function()
       if languageFn then languageFn() end
       state.showOptions = false
@@ -95,19 +101,45 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
       state.statusLine = L.statusRescan or "Peripherals neu gesucht"
     end)
 
-    addButton("optCalTurbine", panelX1, 13, panelX2, 15, L.calibrateTurbine or "CAL T", colors.orange, function()
+    writeAt(mon, panelX1, 13, L.optionsCalibration or "Kalibrierung", colors.lightGray)
+    addButton("optCalTurbine", panelX1, 14, panelX2, 16, L.calibrateTurbine or "KAL T", colors.orange, function()
       if control.startCalibration(state) then
         state.showOptions = false
       end
     end)
 
-    addButton("optCalReactor", panelX1, 17, panelX2, 19, L.calibrateReactor or "CAL R", colors.orange, function()
+    addButton("optCalReactor", panelX1, 18, panelX2, 20, L.calibrateReactor or "KAL R", colors.orange, function()
       if control.startReactorCalibration(state) then
         state.showOptions = false
       end
     end)
 
-    addButton("optUpdate", panelX1, 21, panelX2, 23, L.update or "UPDATE", colors.purple, function()
+    writeAt(mon, panelX1, 22, L.optionsSteam or "Dampf", colors.lightGray)
+    local liveText = "--"
+    if liveEff then
+      liveText = string.format("%.1f%%", liveEff * 100)
+    end
+    writeAt(mon, panelX1, 23, (L.liveEfficiency or "Live") .. ": " .. liveText, liveEff and colors.lightBlue or colors.gray)
+
+    addButton("optApplySteamEff", panelX1, 24, panelX2, 26, L.applyLiveEfficiency or "EFF UEBERN.", liveEff and colors.cyan or colors.gray, function()
+      local measured = state.steamTransferEfficiencyMeasured
+
+      if (not measured) and totalSteamProd and totalSteamProd > 0 and totalSteamUse and totalSteamUse > 0 then
+        measured = utils.clamp(totalSteamUse / totalSteamProd, 0.50, 1.10)
+      end
+
+      if measured then
+        cfg.steamTransferEfficiency = utils.clamp(measured, 0.50, 1.10)
+        state.configDirty = true
+        state.statusLine = (L.statusEfficiencyApplied or "Dampf-Eff uebernommen: ") .. string.format("%.1f%%", cfg.steamTransferEfficiency * 100)
+        state.showOptions = false
+      else
+        state.statusLine = L.statusEfficiencyNoLive or "Kein Live-Wert verfuegbar"
+      end
+    end)
+
+    writeAt(mon, panelX1, 28, L.optionsMaintenance or "Wartung", colors.lightGray)
+    addButton("optUpdate", panelX1, 29, panelX2, 31, L.update or "UPDATE", colors.purple, function()
       if updateFn then updateFn() end
       state.showOptions = false
     end)
