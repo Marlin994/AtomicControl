@@ -4,6 +4,7 @@ local reactors = require("reactors")
 local turbines = require("turbines")
 local alarms = require("alarms")
 local control = require("control")
+local SteamManager = require("steammanager")
 
 local M = {}
 
@@ -62,6 +63,8 @@ local function drawButton(mon, b)
   for y=b.y1,b.y2 do
     mon.setCursorPos(b.x1, y)
     mon.write(string.rep(" ", b.x2-b.x1+1))
+
+    drawTransferEfficiency()
   end
   local x = b.x1 + math.floor((b.x2-b.x1+1-#b.label)/2)
   local y = b.y1 + math.floor((b.y2-b.y1)/2)
@@ -77,6 +80,19 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
   local smallLeftA, smallLeftB, smallLeftC, smallLeftD = 62, 67, 69, 74
   local smallRightA, smallRightB, smallRightC, smallRightD = 76, 81, 83, 88
 
+
+  local function drawTransferEfficiency()
+    local eff = tonumber(cfg.steamTransferEfficiency) or 1.00
+    local measured = state.steamTransferEfficiencyMeasured
+    local txt = (L.transferEfficiency or "Steam Eff") .. ": " .. string.format("%.1f%%", eff * 100)
+
+    if measured then
+      txt = txt .. " (" .. string.format("%.1f%%", measured * 100) .. ")"
+    end
+
+    writeAt(mon, panelX1, 19, utils.padRight(txt, panelX2 - panelX1 + 1), colors.lightBlue)
+  end
+
   local function drawOptionsMenu()
     -- Options menu gets the full right panel.
     -- General controls are hidden while this menu is open.
@@ -84,32 +100,36 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
     writeAt(mon, panelX1, 2, L.options or "OPTIONEN", colors.yellow)
     writeAt(mon, panelX1, 3, string.rep("-", panelX2-panelX1+1), colors.gray)
 
-    addButton("optLang", panelX1, 5, panelX2, 7, (L.language or "LANG") .. ": " .. string.upper(cfg.language or "de"), colors.blue, function()
+    writeAt(mon, panelX1, 5, L.software or "Software", colors.cyan)
+
+    addButton("optLang", panelX1, 7, panelX2, 9, L.language or "SPRACHE", colors.blue, function()
       if languageFn then languageFn() end
       state.showOptions = false
     end)
 
-    addButton("optRescan", panelX1, 9, panelX2, 11, L.rescan or "RESCAN", colors.brown, function()
+    addButton("optUpdate", panelX1, 11, panelX2, 13, L.update or "UPDATE", colors.purple, function()
+      if updateFn then updateFn() end
+      state.showOptions = false
+    end)
+
+    addButton("optRescan", panelX1, 15, panelX2, 17, L.rescan or "RESCAN", colors.brown, function()
       if rescanFn then rescanFn() end
       state.showOptions = false
       state.statusLine = L.statusRescan or "Peripherals neu gesucht"
     end)
 
-    addButton("optCalTurbine", panelX1, 13, panelX2, 15, L.calibrateTurbine or "CAL T", colors.orange, function()
-      if control.startCalibration(state) then
+    writeAt(mon, panelX1, 20, L.calibration or "Kalibrieren", colors.cyan)
+
+    addButton("optCalCoarse", panelX1, 22, panelX2, 24, L.calibrateCoarse or "GROB", colors.orange, function()
+      if control.startCalibration(state, "coarse") then
         state.showOptions = false
       end
     end)
 
-    addButton("optCalReactor", panelX1, 17, panelX2, 19, L.calibrateReactor or "CAL R", colors.orange, function()
-      if control.startReactorCalibration(state) then
+    addButton("optCalFine", panelX1, 26, panelX2, 28, L.calibrateFine or "FEIN", colors.orange, function()
+      if control.startCalibration(state, "fine") then
         state.showOptions = false
       end
-    end)
-
-    addButton("optUpdate", panelX1, 21, panelX2, 23, L.update or "UPDATE", colors.purple, function()
-      if updateFn then updateFn() end
-      state.showOptions = false
     end)
 
     addButton("optBack", panelX1, 45, panelX2, 47, L.back or "BACK", colors.gray, function()
