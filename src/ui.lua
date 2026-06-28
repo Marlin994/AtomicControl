@@ -63,15 +63,11 @@ local function drawButton(mon, b)
   for y=b.y1,b.y2 do
     mon.setCursorPos(b.x1, y)
     mon.write(string.rep(" ", b.x2-b.x1+1))
-
-    drawTransferEfficiency()
   end
   local x = b.x1 + math.floor((b.x2-b.x1+1-#b.label)/2)
   local y = b.y1 + math.floor((b.y2-b.y1)/2)
   writeAt(mon, x, y, b.label, colors.white, b.bg)
 end
-
-local drawTransferEfficiency
 
 local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPage, turbinesPerPage, L, languageFn, updateFn)
   L = L or {}
@@ -81,18 +77,19 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
   local rightX1, rightX2 = 76, 88
   local smallLeftA, smallLeftB, smallLeftC, smallLeftD = 62, 67, 69, 74
   local smallRightA, smallRightB, smallRightC, smallRightD = 76, 81, 83, 88
-
-
-  drawTransferEfficiency = function()
-    local eff = tonumber(cfg.steamTransferEfficiency) or 1.00
-    local measured = state.steamTransferEfficiencyMeasured
-    local txt = (L.transferEfficiency or "Steam Eff") .. ": " .. string.format("%.1f%%", eff * 100)
-
-    if measured then
-      txt = txt .. " (" .. string.format("%.1f%%", measured * 100) .. ")"
-    end
-
     writeAt(mon, panelX1, 19, utils.padRight(txt, panelX2 - panelX1 + 1), colors.lightBlue)
+
+    do
+      local eff = tonumber(cfg.steamTransferEfficiency) or 1.00
+      local measured = state.steamTransferEfficiencyMeasured
+      local txt = (L.transferEfficiency or "Steam Eff") .. ": " .. string.format("%.1f%%", eff * 100)
+
+      if measured then
+        txt = txt .. " (" .. string.format("%.1f%%", measured * 100) .. ")"
+      end
+
+      writeAt(mon, panelX1, 19, utils.padRight(txt, panelX2 - panelX1 + 1), colors.lightBlue)
+    end
   end
 
   local function drawOptionsMenu()
