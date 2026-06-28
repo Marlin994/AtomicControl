@@ -327,7 +327,17 @@ function M.draw(state, cfg, saveFn, rescanFn, L, languageFn, updateFn)
   do
     local eff = tonumber(cfg.steamTransferEfficiency) or 1.00
     local measured = state.steamTransferEfficiencyMeasured
-    local txt = (L.transferEfficiency or "Dampf-Eff")..": "..string.format("%.1f%%", eff * 100)
+
+    if not measured and totalSteamProd and totalSteamProd > 0 and totalSteamUse and totalSteamUse > 0 then
+      measured = utils.clamp(totalSteamUse / totalSteamProd, 0.50, 1.10)
+    end
+
+    local label = L.transferEfficiency
+    if not label or label == "transferEfficiency" then
+      label = "Dampf-Eff"
+    end
+
+    local txt = label..": "..string.format("%.1f%%", eff * 100)
 
     if measured then
       txt = txt.." ("..string.format("%.1f%%", measured * 100)..")"

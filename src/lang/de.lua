@@ -93,5 +93,6 @@ return {
   alarmNoRF = " kein RF",
   alarmActiveNoTurbine = "Aktiver R%d ohne Turbine",
   alarmNoSteam = "R%d kein Dampf",
-  alarmAllReactorsOff = "Alle Reaktoren AUS"
+  alarmAllReactorsOff = "Alle Reaktoren AUS",
+  transferEfficiency = "Dampf-Eff"
 }
