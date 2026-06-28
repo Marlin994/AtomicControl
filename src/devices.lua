@@ -18,63 +18,75 @@ function M.isTurbine(p)
   return M.hasMethod(p, "getRotorSpeed")
 end
 
-local function numberOrNil(v)
-  v = tonumber(v)
-  if v == nil then return nil end
-  return v
+local function asNumber(v)
+  return tonumber(v)
 end
 
 function M.reactorHasSteam(p)
   if not p then return false end
 
-  -- Strong indicators for actively cooled reactors.
-  -- Do NOT use getHotFluidAmount alone. Passive reactors can expose it too.
-  if M.hasMethod(p, "getHotFluidProducedLastTick") then return true end
-  if M.hasMethod(p, "getHotFluidGeneratedLastTick") then return true end
-  if M.hasMethod(p, "getFluidProducedLastTick") then return true end
+  -- Best source of truth for Extreme Reactors:
+  -- passive reactor => false
+  -- active reactor  => true
+  if M.hasMethod(p, "isActivelyCooled") then
+    local v = utils.safe(function() return p.isActivelyCooled() end, nil)
+    if v ~= nil then
+      return v and true or false
+    end
+  end
 
-  -- Some versions expose stats instead of explicit production methods.
+  -- Fallback for versions/mods that expose coolant capacity instead.
+  if M.hasMethod(p, "getCoolantAmountMax") then
+    local max = utils.safe(function() return p.getCoolantAmountMax() end, nil)
+    max = asNumber(max)
+    if max ~= nil then
+      return max > 0
+    end
+  end
+
+  -- Fallback for versions/mods with hot-fluid capacity.
+  if M.hasMethod(p, "getHotFluidAmountMax") then
+    local max = utils.safe(function() return p.getHotFluidAmountMax() end, nil)
+    max = asNumber(max)
+    if max ~= nil then
+      return max > 0
+    end
+  end
+
   if M.hasMethod(p, "getHotFluidStats") then
     local stats = utils.safe(function() return p.getHotFluidStats() end, nil)
 
     if type(stats) == "table" then
       local capacity =
-        numberOrNil(stats.capacity) or
-        numberOrNil(stats.max) or
-        numberOrNil(stats.fluidCapacity) or
-        numberOrNil(stats.amountMax)
+        asNumber(stats.fluidCapacity) or
+        asNumber(stats.capacity) or
+        asNumber(stats.max) or
+        asNumber(stats.amountMax)
 
-      local amount =
-        numberOrNil(stats.amount) or
-        numberOrNil(stats.stored) or
-        numberOrNil(stats.fluidAmount)
-
-      local produced =
-        numberOrNil(stats.producedLastTick) or
-        numberOrNil(stats.generatedLastTick) or
-        numberOrNil(stats.amountProducedLastTick)
-
-      -- A real active reactor usually has a hot-fluid tank with capacity,
-      -- or reports hot-fluid production. Passive reactors may expose empty
-      -- compatibility methods, so require meaningful data.
-      if produced and produced > 0 then return true end
-      if capacity and capacity > 0 then return true end
-      if amount and amount > 0 then return true end
+      if capacity ~= nil then
+        return capacity > 0
+      end
     end
   end
 
-  -- Last fallback: only classify as active if a max/capacity method exists
-  -- and returns a positive value. getHotFluidAmount alone is not enough.
-  if M.hasMethod(p, "getHotFluidAmountMax") then
-    local max = utils.safe(function() return p.getHotFluidAmountMax() end, nil)
-    max = numberOrNil(max)
-    if max and max > 0 then return true end
+  -- Last fallback: production method with actual production.
+  -- Method presence alone is not enough because passive reactors may expose it too.
+  if M.hasMethod(p, "getHotFluidProducedLastTick") then
+    local produced = utils.safe(function() return p.getHotFluidProducedLastTick() end, nil)
+    produced = asNumber(produced)
+    if produced and produced > 0 then return true end
   end
 
-  if M.hasMethod(p, "getHotFluidCapacity") then
-    local max = utils.safe(function() return p.getHotFluidCapacity() end, nil)
-    max = numberOrNil(max)
-    if max and max > 0 then return true end
+  if M.hasMethod(p, "getHotFluidGeneratedLastTick") then
+    local produced = utils.safe(function() return p.getHotFluidGeneratedLastTick() end, nil)
+    produced = asNumber(produced)
+    if produced and produced > 0 then return true end
+  end
+
+  if M.hasMethod(p, "getFluidProducedLastTick") then
+    local produced = utils.safe(function() return p.getFluidProducedLastTick() end, nil)
+    produced = asNumber(produced)
+    if produced and produced > 0 then return true end
   end
 
   return false

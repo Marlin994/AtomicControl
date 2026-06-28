@@ -66,15 +66,19 @@ end
 
 print("")
 print("Installation complete.")
-sleep(1)
 
 if hadConfig then
   print("Existing config found.")
-  print("Starting AtomicControl without setup...")
-  sleep(1)
-  shell.run("main")
+  print("Setup will not be started again.")
 else
-  print("Starting first setup...")
+  print("First install detected.")
+  print("Starting setup...")
   sleep(1)
   shell.run("main", "setup")
+  return
 end
+
+print("")
+print("Rebooting...")
+sleep(2)
+os.reboot()
