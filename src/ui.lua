@@ -324,6 +324,18 @@ function M.draw(state, cfg, saveFn, rescanFn, L, languageFn, updateFn)
   writeAt(mon,2,17,(L.charge or "Ladung")..":      "..utils.formatRF(state.storageInRF or 0),colors.cyan)
   writeAt(mon,2,18,(L.net or "Netto")..":       "..utils.formatRF(state.storageNetRF or 0),(state.storageNetRF or 0)>=0 and colors.lime or colors.red)
 
+  do
+    local eff = tonumber(cfg.steamTransferEfficiency) or 1.00
+    local measured = state.steamTransferEfficiencyMeasured
+    local txt = (L.transferEfficiency or "Dampf-Eff")..": "..string.format("%.1f%%", eff * 100)
+
+    if measured then
+      txt = txt.." ("..string.format("%.1f%%", measured * 100)..")"
+    end
+
+    writeAt(mon,2,19,utils.padRight(txt,36),colors.lightBlue)
+  end
+
   local worst = alarms.worstLevel(state.alarms or {})
   local ac = worst=="ERROR" and colors.red or (worst=="WARN" and colors.orange or colors.lime)
   writeAt(mon,40,18,(L.alarm or "Alarm")..": "..worst,ac)
