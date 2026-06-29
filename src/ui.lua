@@ -100,7 +100,7 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
   local smallRightA, smallRightB, smallRightC, smallRightD = 76, 81, 83, 88
 
   local function button(id, x1, y1, x2, y2, label, bg, action)
-    button(id, x1, y1, x2, y2, label, bg, action)
+    addButton(id, x1, y1, x2, y2, label, bg, action)
     drawButton(mon, buttons[id])
   end
 
