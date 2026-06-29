@@ -9,6 +9,34 @@ local M = {}
 
 local buttons = {}
 
+local function isDeviceAutoEnabled(cfg, entry)
+  if not entry or not entry.name then return true end
+  if type(cfg) ~= "table" then return true end
+
+  if type(cfg.deviceAutoEnabled) ~= "table" then
+    cfg.deviceAutoEnabled = {}
+    return true
+  end
+
+  local value = cfg.deviceAutoEnabled[entry.name]
+  if value == nil then return true end
+
+  return value and true or false
+end
+
+local function setDeviceAutoEnabled(cfg, state, entry, value)
+  if not entry or not entry.name then return end
+  if type(cfg) ~= "table" then return end
+
+  cfg.deviceAutoEnabled = cfg.deviceAutoEnabled or {}
+  cfg.deviceAutoEnabled[entry.name] = value and true or false
+
+  if state then
+    state.configDirty = true
+  end
+end
+
+
 local function getTurbineCalibration(cfg, entry)
   if not cfg or not entry or not entry.name then return nil end
   if type(cfg.turbineCalibrations) ~= "table" then return nil end
@@ -178,7 +206,7 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
       local power = utils.clamp(100 - reactors.getRod(r), 0, 100)
       writeAt(mon, panelX1, 7, (L.type or "Typ") .. ": " .. kind, r.kind=="ACTIVE" and colors.cyan or colors.orange)
       writeAt(mon, panelX1, 8, (L.status or "Status") .. ": " .. utils.boolText(r.enabled,L), r.enabled and colors.lime or colors.red)
-      writeAt(mon, panelX1, 9, (L.autoAllowed or "Auto erlaubt") .. ": " .. yesNo(isDeviceAutoEnabled(r)), isDeviceAutoEnabled(r) and colors.lime or colors.red)
+      writeAt(mon, panelX1, 9, (L.autoAllowed or "Auto erlaubt") .. ": " .. yesNo(isDeviceAutoEnabled(cfg, r)), isDeviceAutoEnabled(cfg, r) and colors.lime or colors.red)
       writeAt(mon, panelX1, 10, (L.power or "Leistung") .. ": " .. tostring(power) .. "%", colors.white)
       if r.kind == "ACTIVE" then
         writeAt(mon, panelX1, 11, (L.steamProduced or "Dampf-Prod") .. ": " .. tostring(math.floor(reactors.getSteamProduction(r))) .. " mB/t", colors.cyan)
@@ -231,7 +259,7 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
         if turbines.getInductor(t.p) then tStatus = L.on or "AN"; tStatusColor = colors.lime else tStatus = L.free or "FREI"; tStatusColor = colors.orange end
       end
       writeAt(mon, panelX1, 7, (L.status or "Status") .. ": " .. tStatus, tStatusColor)
-      writeAt(mon, panelX1, 8, (L.autoAllowed or "Auto erlaubt") .. ": " .. yesNo(isDeviceAutoEnabled(t)), isDeviceAutoEnabled(t) and colors.lime or colors.red)
+      writeAt(mon, panelX1, 8, (L.autoAllowed or "Auto erlaubt") .. ": " .. yesNo(isDeviceAutoEnabled(cfg, t)), isDeviceAutoEnabled(cfg, t) and colors.lime or colors.red)
       writeAt(mon, panelX1, 9, "RPM: " .. tostring(math.floor(rpm)) .. " / " .. tostring(math.floor(targetRpm)), colors.white)
       writeAt(mon, panelX1, 10, "Flow: " .. tostring(math.floor(flow)) .. " mB/t", colors.orange)
       writeAt(mon, panelX1, 11, "Kal.: " .. (calFlow and tostring(math.floor(calFlow)) or "---") .. " mB/t", calFlow and colors.cyan or colors.gray)
