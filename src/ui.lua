@@ -9,6 +9,11 @@ local M = {}
 
 local buttons = {}
 
+local function yesNo(v, L)
+  L = L or {}
+  return v and (L.yes or "JA") or (L.no or "NEIN")
+end
+
 local function isDeviceAutoEnabled(cfg, entry)
   if not entry or not entry.name then return true end
   if type(cfg) ~= "table" then return true end
@@ -35,6 +40,8 @@ local function setDeviceAutoEnabled(cfg, state, entry, value)
     state.configDirty = true
   end
 end
+
+
 
 
 
