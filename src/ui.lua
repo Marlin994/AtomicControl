@@ -178,11 +178,12 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
       local power = utils.clamp(100 - reactors.getRod(r), 0, 100)
       writeAt(mon, panelX1, 7, (L.type or "Typ") .. ": " .. kind, r.kind=="ACTIVE" and colors.cyan or colors.orange)
       writeAt(mon, panelX1, 8, (L.status or "Status") .. ": " .. utils.boolText(r.enabled,L), r.enabled and colors.lime or colors.red)
-      writeAt(mon, panelX1, 9, (L.power or "Leistung") .. ": " .. tostring(power) .. "%", colors.white)
+      writeAt(mon, panelX1, 9, (L.autoAllowed or "Auto erlaubt") .. ": " .. yesNo(isDeviceAutoEnabled(r)), isDeviceAutoEnabled(r) and colors.lime or colors.red)
+      writeAt(mon, panelX1, 10, (L.power or "Leistung") .. ": " .. tostring(power) .. "%", colors.white)
       if r.kind == "ACTIVE" then
-        writeAt(mon, panelX1, 10, (L.steamProduced or "Dampf-Prod") .. ": " .. tostring(math.floor(reactors.getSteamProduction(r))) .. " mB/t", colors.cyan)
+        writeAt(mon, panelX1, 11, (L.steamProduced or "Dampf-Prod") .. ": " .. tostring(math.floor(reactors.getSteamProduction(r))) .. " mB/t", colors.cyan)
       else
-        writeAt(mon, panelX1, 10, (L.rfPassive or "RF Passiv") .. ": " .. utils.formatRF(reactors.getRF(r)), colors.lime)
+        writeAt(mon, panelX1, 11, (L.rfPassive or "RF Passiv") .. ": " .. utils.formatRF(reactors.getRF(r)), colors.lime)
       end
     else
       writeAt(mon, panelX1, 7, L.noReactors or "Keine Reaktoren gefunden", colors.red)
@@ -230,10 +231,11 @@ local function drawControlPanel(mon, state, cfg, saveFn, rescanFn, reactorsPerPa
         if turbines.getInductor(t.p) then tStatus = L.on or "AN"; tStatusColor = colors.lime else tStatus = L.free or "FREI"; tStatusColor = colors.orange end
       end
       writeAt(mon, panelX1, 7, (L.status or "Status") .. ": " .. tStatus, tStatusColor)
-      writeAt(mon, panelX1, 8, "RPM: " .. tostring(math.floor(rpm)) .. " / " .. tostring(math.floor(targetRpm)), colors.white)
-      writeAt(mon, panelX1, 9, "Flow: " .. tostring(math.floor(flow)) .. " mB/t", colors.orange)
-      writeAt(mon, panelX1, 10, "Kal.: " .. (calFlow and tostring(math.floor(calFlow)) or "---") .. " mB/t", calFlow and colors.cyan or colors.gray)
-      writeAt(mon, panelX1, 11, "RF/t: " .. utils.formatRF(rf), colors.lime)
+      writeAt(mon, panelX1, 8, (L.autoAllowed or "Auto erlaubt") .. ": " .. yesNo(isDeviceAutoEnabled(t)), isDeviceAutoEnabled(t) and colors.lime or colors.red)
+      writeAt(mon, panelX1, 9, "RPM: " .. tostring(math.floor(rpm)) .. " / " .. tostring(math.floor(targetRpm)), colors.white)
+      writeAt(mon, panelX1, 10, "Flow: " .. tostring(math.floor(flow)) .. " mB/t", colors.orange)
+      writeAt(mon, panelX1, 11, "Kal.: " .. (calFlow and tostring(math.floor(calFlow)) or "---") .. " mB/t", calFlow and colors.cyan or colors.gray)
+      writeAt(mon, panelX1, 12, "RF/t: " .. utils.formatRF(rf), colors.lime)
     else
       writeAt(mon, panelX1, 7, L.noTurbines or "Keine Turbinen gefunden", colors.red)
     end

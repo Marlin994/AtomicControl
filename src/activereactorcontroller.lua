@@ -5,33 +5,31 @@ local ReactorCalibration = require("reactorcalibration")
 
 local M = {}
 
+local function deviceAutoEnabled(cfg, entry)
+  if not entry or not entry.name then return true end
+  if type(cfg) ~= "table" then return true end
+  if type(cfg.deviceAutoEnabled) ~= "table" then
+    cfg.deviceAutoEnabled = {}
+    return true
+  end
+
+  local value = cfg.deviceAutoEnabled[entry.name]
+  if value == nil then return true end
+  return value and true or false
+end
+
+
 M.DEADBAND = 40
 M.ROD_STEP_SMALL = 1
 M.ROD_STEP_MED = 2
 M.ROD_STEP_FAST = 4
 M.ROD_STEP_EMERGENCY = 8
 
-local function deviceAutoEnabled(cfg, r)
-  if not r or not r.name then return true end
-  cfg.deviceAutoEnabled = cfg.deviceAutoEnabled or {}
-  return cfg.deviceAutoEnabled[r.name] ~= false
-end
-
-local function shutdownAutoDisabled(state, cfg)
-  for _, r in ipairs(state.reactors or {}) do
-    if r.kind == "ACTIVE" and not deviceAutoEnabled(cfg, r) then
-      reactors.setActive(r, false)
-      reactors.setRods(r, 100)
-      r.managedActive = false
-    end
-  end
-end
-
-local function enabledActiveReactors(state, cfg)
+local function enabledActiveReactors(state)
   local out = {}
 
   for i, r in ipairs(state.reactors or {}) do
-    if r.enabled and r.kind == "ACTIVE" and deviceAutoEnabled(cfg, r) then
+    if r.enabled and r.kind == "ACTIVE" then
       table.insert(out, {idx = i, r = r})
     end
   end
@@ -103,7 +101,7 @@ local function fallbackControl(state, cfg, list, storageLow, steamPct, steamOk, 
   local targetInfo = SteamManager.getTarget(state, cfg)
   local target = targetInfo.target or 0
   local production = SteamManager.getProduction(state)
-  local lowestRpm = TurbineController.lowestRPM(state, cfg)
+  local lowestRpm = TurbineController.lowestRPM(state)
 
   local wanted = 1
 
@@ -147,9 +145,7 @@ local function fallbackControl(state, cfg, list, storageLow, steamPct, steamOk, 
 end
 
 function M.update(state, cfg, storageHigh, storageLow, steamPct, steamOk, turbinesNeedSteam)
-  shutdownAutoDisabled(state, cfg)
-
-  local list = enabledActiveReactors(state, cfg)
+  local list = enabledActiveReactors(state)
   if #list == 0 then return end
 
   if cfg.operationMode == "CYANITE" then

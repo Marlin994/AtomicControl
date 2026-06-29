@@ -29,6 +29,7 @@ local defaults = {
 
 local function copyTable(tbl)
   local out = {}
+
   for k, v in pairs(tbl or {}) do
     if type(v) == "table" then
       out[k] = copyTable(v)
@@ -36,7 +37,15 @@ local function copyTable(tbl)
       out[k] = v
     end
   end
+
   return out
+end
+
+local function clampNumber(value, minValue, maxValue, fallback)
+  local n = tonumber(value) or fallback
+  if n < minValue then n = minValue end
+  if n > maxValue then n = maxValue end
+  return n
 end
 
 function M.load()
@@ -63,18 +72,18 @@ function M.load()
   if type(cfg.reactorCalibrations) ~= "table" then cfg.reactorCalibrations = {} end
   if type(cfg.deviceAutoEnabled) ~= "table" then cfg.deviceAutoEnabled = {} end
 
+  cfg.storageMin = clampNumber(cfg.storageMin, 0, 95, 30)
+  cfg.storageMax = clampNumber(cfg.storageMax, cfg.storageMin + 5, 100, 90)
+
   if cfg.language ~= "de" and cfg.language ~= "en" then
     cfg.language = "de"
   end
 
-  -- ECO was removed. Old ECO configs are migrated to NORMAL.
   if cfg.operationMode ~= "NORMAL" and cfg.operationMode ~= "CYANITE" then
     cfg.operationMode = "NORMAL"
   end
 
-  cfg.steamTransferEfficiency = tonumber(cfg.steamTransferEfficiency) or 1.00
-  if cfg.steamTransferEfficiency < 0.50 then cfg.steamTransferEfficiency = 0.50 end
-  if cfg.steamTransferEfficiency > 1.10 then cfg.steamTransferEfficiency = 1.10 end
+  cfg.steamTransferEfficiency = clampNumber(cfg.steamTransferEfficiency, 0.50, 1.10, 1.00)
 
   return cfg
 end
@@ -91,11 +100,15 @@ function M.save(cfg, state)
 
   if state then
     for _, r in ipairs(state.reactors or {}) do
-      if r.name then cfg.reactors[r.name] = r.enabled end
+      if r.name then
+        cfg.reactors[r.name] = r.enabled
+      end
     end
 
     for _, t in ipairs(state.turbines or {}) do
-      if t.name then cfg.turbines[t.name] = t.enabled end
+      if t.name then
+        cfg.turbines[t.name] = t.enabled
+      end
     end
 
     cfg.selectedReactor = state.selectedReactor or cfg.selectedReactor

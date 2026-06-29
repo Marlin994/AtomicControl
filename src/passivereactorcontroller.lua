@@ -2,29 +2,27 @@ local reactors = require("reactors")
 
 local M = {}
 
+local function deviceAutoEnabled(cfg, entry)
+  if not entry or not entry.name then return true end
+  if type(cfg) ~= "table" then return true end
+  if type(cfg.deviceAutoEnabled) ~= "table" then
+    cfg.deviceAutoEnabled = {}
+    return true
+  end
+
+  local value = cfg.deviceAutoEnabled[entry.name]
+  if value == nil then return true end
+  return value and true or false
+end
+
+
 M.ROD_STEP_NORMAL = 3
 
-local function deviceAutoEnabled(cfg, r)
-  if not r or not r.name then return true end
-  cfg.deviceAutoEnabled = cfg.deviceAutoEnabled or {}
-  return cfg.deviceAutoEnabled[r.name] ~= false
-end
-
-local function shutdownAutoDisabled(state, cfg)
-  for _, r in ipairs(state.reactors or {}) do
-    if r.kind == "PASSIVE" and not deviceAutoEnabled(cfg, r) then
-      reactors.setActive(r, false)
-      reactors.setRods(r, 100)
-      r.managedActive = false
-    end
-  end
-end
-
-local function enabledPassiveReactors(state, cfg)
+local function enabledPassiveReactors(state)
   local out = {}
 
   for i, r in ipairs(state.reactors or {}) do
-    if r.enabled and r.kind == "PASSIVE" and deviceAutoEnabled(cfg, r) then
+    if r.enabled and r.kind == "PASSIVE" then
       table.insert(out, {idx = i, r = r})
     end
   end
@@ -41,9 +39,7 @@ local function setIdle(list, startIndex)
 end
 
 function M.update(state, cfg, storageLow, storageHigh, storageMidHigh)
-  shutdownAutoDisabled(state, cfg)
-
-  local list = enabledPassiveReactors(state, cfg)
+  local list = enabledPassiveReactors(state)
   if #list == 0 then return end
 
   if cfg.operationMode == "CYANITE" then

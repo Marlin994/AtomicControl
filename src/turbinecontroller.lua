@@ -4,18 +4,14 @@ local turbines = require("turbines")
 local M = {}
 
 local function deviceAutoEnabled(cfg, entry)
-  if not entry then return true end
-
-  local name = entry.name
-  if not name then return true end
-
+  if not entry or not entry.name then return true end
   if type(cfg) ~= "table" then return true end
   if type(cfg.deviceAutoEnabled) ~= "table" then
     cfg.deviceAutoEnabled = {}
     return true
   end
 
-  local value = cfg.deviceAutoEnabled[name]
+  local value = cfg.deviceAutoEnabled[entry.name]
   if value == nil then return true end
   return value and true or false
 end
