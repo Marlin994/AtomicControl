@@ -25,11 +25,16 @@ M.ROD_STEP_MED = 2
 M.ROD_STEP_FAST = 4
 M.ROD_STEP_EMERGENCY = 8
 
-local function enabledActiveReactors(state)
+local function enabledActiveReactors(state, cfg)
   local out = {}
 
   for i, r in ipairs(state.reactors or {}) do
-    if r.enabled and r.kind == "ACTIVE" then
+    if not deviceAutoEnabled(cfg, r) then
+      r.enabled = false
+      reactors.setActive(r, false)
+      reactors.setRods(r, 100)
+      r.managedActive = false
+    elseif r.enabled and r.kind == "ACTIVE" then
       table.insert(out, {idx = i, r = r})
     end
   end
@@ -145,7 +150,7 @@ local function fallbackControl(state, cfg, list, storageLow, steamPct, steamOk, 
 end
 
 function M.update(state, cfg, storageHigh, storageLow, steamPct, steamOk, turbinesNeedSteam)
-  local list = enabledActiveReactors(state)
+  local list = enabledActiveReactors(state, cfg)
   if #list == 0 then return end
 
   if cfg.operationMode == "CYANITE" then

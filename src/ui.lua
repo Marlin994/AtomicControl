@@ -411,8 +411,11 @@ local function drawReactorMenu(mon, state, cfg, L, reactorsPerPage)
     local newValue = not isDeviceAutoEnabled(cfg, entry)
     setDeviceAutoEnabled(cfg, state, entry, newValue)
 
-    if cfg.auto and not newValue then
+    if newValue then
+      entry.enabled = true
+    elseif cfg.auto then
       entry.enabled = false
+      reactors.setActive(entry, false)
       reactors.setRods(entry, 100)
     end
 
@@ -518,7 +521,9 @@ local function drawTurbineMenu(mon, state, cfg, L, turbinesPerPage)
     local newValue = not isDeviceAutoEnabled(cfg, entry)
     setDeviceAutoEnabled(cfg, state, entry, newValue)
 
-    if cfg.auto and not newValue then
+    if newValue then
+      entry.enabled = true
+    elseif cfg.auto then
       entry.enabled = false
       turbines.setFlow(entry.p, 0)
       turbines.setInductor(entry.p, false)
@@ -838,14 +843,14 @@ local function drawTurbineTable(mon, state, cfg, L, h)
     local targetRpm = getTurbineTargetRPM(cfg, e)
 
     local rpmColor = colors.lime
-    if rpm < 1700 or rpm > 1850 then
-      rpmColor = colors.red
-    elseif rpm < 1750 then
-      rpmColor = colors.orange
-    end
+    local rpmDiff = rpm - targetRpm
 
     if rpm == 0 then
       rpmColor = colors.gray
+    elseif math.abs(rpmDiff) > 100 then
+      rpmColor = colors.red
+    elseif math.abs(rpmDiff) > 50 then
+      rpmColor = colors.orange
     end
 
     local tStatus = L.off or "AUS"

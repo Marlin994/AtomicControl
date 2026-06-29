@@ -8,9 +8,9 @@ It controls active reactors, passive reactors, turbines, energy storage, calibra
 
 ## Current Version
 
-**v3.2.0**
+**v3.3.16**
 
-This is a clean integrated release that merges the previous patch series into one consistent repository.
+This is a cleaned-up stability release with the rebuilt multi-page UI, per-device automatic enable/disable, individual turbine target RPM, and fixed installer/storage handling.
 
 ---
 
@@ -21,7 +21,7 @@ This is a clean integrated release that merges the previous patch series into on
 - Reliable active/passive detection via `isActivelyCooled()`
 - Multiple reactor support
 - Multiple turbine support
-- Turbine PID-style flow control around **1800 RPM**
+- Turbine PID-style flow control with **individual target RPM per turbine**
 - Turbine calibration
 - Adaptive turbine calibration learning
 - Active reactor calibration curve
@@ -32,6 +32,10 @@ This is a clean integrated release that merges the previous patch series into on
 - Extreme Reactors Energizer support
 - Direct energy IO reading where available
 - Touch monitor interface
+- Target-RPM-aware turbine alarms and UI coloring
+- Learned steam transfer efficiency compensation
+- Per-reactor and per-turbine `Auto erlaubt` / `Auto allowed` control
+- Rebuilt multi-page touch UI
 - Multi-page reactor and turbine lists
 - German and English language support
 - Autostart setup
@@ -83,7 +87,7 @@ getEnergyFilledPercentage()
 NORMAL is the default mode.
 
 ```text
-target steam production = turbine demand × 1.03
+target steam production = (turbine demand / steamTransferEfficiency) × 1.03
 ```
 
 If the active reactor has been calibrated, AtomicControl uses the measured reactor steam curve to choose suitable rod levels directly.
@@ -95,7 +99,7 @@ If no reactor calibration exists yet, it falls back to dynamic rod regulation.
 CYANITE mode intentionally burns fuel to produce Cyanite.
 
 - active reactors run at 0% rods
-- turbines are still regulated around 1800 RPM
+- turbines are still regulated around their configured target RPM
 - if the energy storage is full, turbines are disengaged but kept ready with idle flow
 
 ---
@@ -104,20 +108,20 @@ CYANITE mode intentionally burns fuel to produce Cyanite.
 
 ### Turbine Calibration
 
-Use:
+Use the turbine page:
 
 ```text
-OPTION -> CAL T
+TURBINEN -> KAL TURB.
 ```
 
-This calibrates the selected turbine and stores the flow needed for stable 1800 RPM.
+This calibrates the selected turbine and stores the flow needed for its configured target RPM.
 
 ### Reactor Calibration
 
-Use:
+Use the reactor page:
 
 ```text
-OPTION -> CAL R
+REAKTOREN -> KAL REAK.
 ```
 
 During reactor calibration:
@@ -177,9 +181,11 @@ wget run https://raw.githubusercontent.com/Marlin994/AtomicControl/main/install.
 wget run https://raw.githubusercontent.com/Marlin994/AtomicControl/main/update.lua
 ```
 
-The updater downloads the latest installer, installs all files, and reboots the ComputerCraft computer.
+The updater downloads the latest installer, installs all program files, and reboots the ComputerCraft computer.
 
 When an existing configuration file is found, setup is not started again.
+
+The installer does not overwrite `startup.lua`; autostart is created only when setup asks for it and you confirm it.
 
 ---
 

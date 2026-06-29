@@ -21,7 +21,6 @@ local files = {
   "activereactorcontroller.lua",
   "passivereactorcontroller.lua",
   "reactorcalibration.lua",
-  "startup.lua",
   "lang/de.lua",
   "lang/en.lua"
 }

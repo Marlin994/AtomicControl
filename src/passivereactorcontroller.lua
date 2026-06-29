@@ -18,11 +18,16 @@ end
 
 M.ROD_STEP_NORMAL = 3
 
-local function enabledPassiveReactors(state)
+local function enabledPassiveReactors(state, cfg)
   local out = {}
 
   for i, r in ipairs(state.reactors or {}) do
-    if r.enabled and r.kind == "PASSIVE" then
+    if not deviceAutoEnabled(cfg, r) then
+      r.enabled = false
+      reactors.setActive(r, false)
+      reactors.setRods(r, 100)
+      r.managedActive = false
+    elseif r.enabled and r.kind == "PASSIVE" then
       table.insert(out, {idx = i, r = r})
     end
   end
@@ -39,7 +44,7 @@ local function setIdle(list, startIndex)
 end
 
 function M.update(state, cfg, storageLow, storageHigh, storageMidHigh)
-  local list = enabledPassiveReactors(state)
+  local list = enabledPassiveReactors(state, cfg)
   if #list == 0 then return end
 
   if cfg.operationMode == "CYANITE" then

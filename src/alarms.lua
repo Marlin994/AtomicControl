@@ -8,8 +8,22 @@ local function add(list, level, text)
   table.insert(list, {level = level, text = text})
 end
 
+local function getTargetRPM(cfg, entry)
+  if not cfg or not entry or not entry.name then return 1800 end
+  if type(cfg.turbineCalibrations) ~= "table" then return 1800 end
+
+  local value = cfg.turbineCalibrations[entry.name]
+  if type(value) == "table" then
+    return tonumber(value.rpm) or 1800
+  end
+
+  return 1800
+end
+
 function M.evaluate(state, cfg, L)
   L = L or {}
+  cfg = cfg or {}
+
   local alarms = {}
 
   if not state.storage then add(alarms, "ERROR", L.alarmNoStorage or "Kein Energiespeicher") end
@@ -29,11 +43,15 @@ function M.evaluate(state, cfg, L)
   for i, t in ipairs(state.turbines or {}) do
     if t.enabled then
       activeTurbines = activeTurbines + 1
+
       local rpm = turbines.getRPM(t.p)
       local rf = turbines.getRF(t.p)
-      if rpm > 0 and rpm < 1700 then add(alarms, "WARN", "T" .. i .. (L.alarmRpmLow or " RPM niedrig")) end
-      if rpm > 1900 then add(alarms, "ERROR", "T" .. i .. (L.alarmRpmHigh or " RPM hoch")) end
-      if rpm > 1750 and rf <= 0 and turbines.getInductor(t.p) then add(alarms, "WARN", "T" .. i .. (L.alarmNoRF or " kein RF")) end
+      local targetRPM = getTargetRPM(cfg, t)
+      local diff = rpm - targetRPM
+
+      if rpm > 0 and diff < -100 then add(alarms, "WARN", "T" .. i .. (L.alarmRpmLow or " RPM niedrig")) end
+      if rpm > 0 and diff > 100 then add(alarms, "ERROR", "T" .. i .. (L.alarmRpmHigh or " RPM hoch")) end
+      if rpm > targetRPM - 50 and rf <= 0 and turbines.getInductor(t.p) then add(alarms, "WARN", "T" .. i .. (L.alarmNoRF or " kein RF")) end
     end
   end
 
@@ -41,9 +59,11 @@ function M.evaluate(state, cfg, L)
   for i, r in ipairs(state.reactors or {}) do
     if r.enabled then
       activeReactors = activeReactors + 1
+
       if r.kind == "ACTIVE" and activeTurbines == 0 then
         add(alarms, "WARN", string.format(L.alarmActiveNoTurbine or "Aktiver R%d ohne Turbine", i))
       end
+
       if r.kind == "ACTIVE" and r.steamProduced == 0 and reactors.getRod(r) < 95 and reactors.getActive(r) then
         add(alarms, "WARN", string.format(L.alarmNoSteam or "R%d kein Dampf", i))
       end

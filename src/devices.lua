@@ -94,7 +94,7 @@ function M.findStorage()
 
     if p and not M.isReactor(p) and not M.isTurbine(p) then
       if energy.isEnergyStorage(p) then
-        local stored, max, ok = energy.getStored(p)
+        local pct, ok = energy.getPercent(p)
 
         if ok then
           return p, name

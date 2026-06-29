@@ -35,6 +35,23 @@ local function getCalibration(cfg, entry)
   return tonumber(value)
 end
 
+local function getTargetRPM(cfg, entry)
+  if not cfg or not entry or not entry.name then return 1800 end
+  if type(cfg.turbineCalibrations) ~= "table" then return 1800 end
+
+  local value = cfg.turbineCalibrations[entry.name]
+  if type(value) == "table" then return tonumber(value.rpm) or 1800 end
+  return 1800
+end
+
+local function deviceAutoEnabled(cfg, entry)
+  if not entry or not entry.name then return true end
+  if type(cfg) ~= "table" then return true end
+  if type(cfg.deviceAutoEnabled) ~= "table" then return true end
+  return cfg.deviceAutoEnabled[entry.name] ~= false
+end
+
+
 function M.getTransferEfficiency(cfg)
   local eff = tonumber(cfg and cfg.steamTransferEfficiency) or M.DEFAULT_TRANSFER_EFFICIENCY
   return utils.clamp(eff, M.MIN_TRANSFER_EFFICIENCY, M.MAX_TRANSFER_EFFICIENCY)
@@ -48,7 +65,7 @@ function M.getDemand(state, cfg)
   local uncalibratedCount = 0
 
   for _, entry in ipairs(state.turbines or {}) do
-    if entry.enabled then
+    if entry.enabled and deviceAutoEnabled(cfg, entry) then
       local current = turbines.getSteam(entry.p) or 0
       local cal = getCalibration(cfg, entry)
 
@@ -106,23 +123,24 @@ function M.getProduction(state)
   return reactors.getTotalSteamProduction(state.reactors or {})
 end
 
-local function turbineQuality(state)
+local function turbineQuality(state, cfg)
   local count = 0
   local stable = true
   local anyInductor = false
 
   for _, entry in ipairs(state.turbines or {}) do
-    if entry.enabled then
+    if entry.enabled and deviceAutoEnabled(cfg, entry) then
       count = count + 1
 
       local rpm = turbines.getRPM(entry.p)
       local flow = turbines.getSteam(entry.p)
+      local targetRPM = getTargetRPM(cfg, entry)
 
       if turbines.getInductor(entry.p) then
         anyInductor = true
       end
 
-      if rpm < M.LEARN_RPM_MIN or rpm > M.LEARN_RPM_MAX then
+      if math.abs((rpm or 0) - targetRPM) > 20 then
         stable = false
       end
 
@@ -163,7 +181,7 @@ function M.learnTransferEfficiency(state, cfg)
   -- Always expose the live measured value to the UI when data is meaningful.
   state.steamTransferEfficiencyMeasured = measured
 
-  local quality = turbineQuality(state)
+  local quality = turbineQuality(state, cfg)
 
   if not quality.hasTurbine then
     state.transferEfficiencyLearnTicks = 0

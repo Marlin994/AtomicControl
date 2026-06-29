@@ -26,6 +26,7 @@ end
 local function shutdownAutoDisabledDevices(state, cfg)
   for _, r in ipairs(state.reactors or {}) do
     if not deviceAutoEnabled(cfg, r) then
+      r.enabled = false
       reactors.setActive(r, false)
       reactors.setRods(r, 100)
       r.managedActive = false
@@ -34,6 +35,7 @@ local function shutdownAutoDisabledDevices(state, cfg)
 
   for _, t in ipairs(state.turbines or {}) do
     if not deviceAutoEnabled(cfg, t) then
+      t.enabled = false
       turbines.setActive(t.p, false)
       turbines.setInductor(t.p, false)
       turbines.setFlow(t.p, 0)
