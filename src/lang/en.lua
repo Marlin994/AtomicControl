@@ -94,6 +94,6 @@ return {
   alarmActiveNoTurbine = "Active R%d without turbine",
   alarmNoSteam = "R%d no steam",
   alarmAllReactorsOff = "All reactors OFF",
-  autoAllowed = "Auto allowed",
-  autoAllowedToggle = "AUTO ALLOWED",
+  targetRpm = "Target RPM",
+  useCurrentRpm = "USE CURRENT",
 }

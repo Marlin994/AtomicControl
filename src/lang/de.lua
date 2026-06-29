@@ -94,6 +94,6 @@ return {
   alarmActiveNoTurbine = "Aktiver R%d ohne Turbine",
   alarmNoSteam = "R%d kein Dampf",
   alarmAllReactorsOff = "Alle Reaktoren AUS",
-  autoAllowed = "Auto erlaubt",
-  autoAllowedToggle = "AUTO ERLAUBT",
+  targetRpm = "Soll-RPM",
+  useCurrentRpm = "IST ALS SOLL",
 }

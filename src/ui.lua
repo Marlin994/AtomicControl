@@ -210,6 +210,38 @@ local function getTurbineTargetRPM(cfg, entry)
   return 1800
 end
 
+local function setTurbineTargetRPM(cfg, state, entry, rpm)
+  if not cfg or not entry or not entry.name then return false end
+
+  rpm = utils.clamp(math.floor(tonumber(rpm) or 1800), 1200, 2200)
+
+  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+
+  local old = cfg.turbineCalibrations[entry.name]
+  local cal = {}
+
+  if type(old) == "table" then
+    for k, v in pairs(old) do
+      cal[k] = v
+    end
+  elseif tonumber(old) then
+    cal.flow = tonumber(old)
+  end
+
+  cal.rpm = rpm
+  cal.adjustedAt = os.epoch and os.epoch("utc") or os.clock()
+
+  cfg.turbineCalibrations[entry.name] = cal
+
+  if state then
+    state.configDirty = true
+    state.statusLine = "T" .. tostring(state.selectedTurbine or "?") .. " Soll-RPM: " .. tostring(rpm)
+  end
+
+  return true
+end
+
+
 local function setTurbineCalibration(cfg, entry, flow)
   if not cfg or not entry or not entry.name or not flow then return false end
 
@@ -511,7 +543,39 @@ local function drawTurbineMenu(mon, state, cfg, L, turbinesPerPage)
     end
   end)
 
-  button(mon, "flowDown", LEFT_X1, 26, LEFT_X2, 28, L.flowDown or "FLOW -", cfg.auto and colors.cyan or colors.gray, function()
+  writeAt(mon, PANEL_X1, 25, L.targetRpm or "Soll-RPM", colors.lightGray)
+
+  button(mon, "rpmDown10", LEFT_X1, 26, LEFT_X2, 28, "RPM -10", colors.purple, function()
+    local entry = getListItem(state.turbines, state.selectedTurbine)
+    if not entry then return end
+    setTurbineTargetRPM(cfg, state, entry, getTurbineTargetRPM(cfg, entry) - 10)
+  end)
+
+  button(mon, "rpmUp10", RIGHT_X1, 26, RIGHT_X2, 28, "RPM +10", colors.purple, function()
+    local entry = getListItem(state.turbines, state.selectedTurbine)
+    if not entry then return end
+    setTurbineTargetRPM(cfg, state, entry, getTurbineTargetRPM(cfg, entry) + 10)
+  end)
+
+  button(mon, "rpmDown1", LEFT_X1, 30, LEFT_X2, 32, "RPM -1", colors.purple, function()
+    local entry = getListItem(state.turbines, state.selectedTurbine)
+    if not entry then return end
+    setTurbineTargetRPM(cfg, state, entry, getTurbineTargetRPM(cfg, entry) - 1)
+  end)
+
+  button(mon, "rpmUp1", RIGHT_X1, 30, RIGHT_X2, 32, "RPM +1", colors.purple, function()
+    local entry = getListItem(state.turbines, state.selectedTurbine)
+    if not entry then return end
+    setTurbineTargetRPM(cfg, state, entry, getTurbineTargetRPM(cfg, entry) + 1)
+  end)
+
+  button(mon, "rpmUseCurrent", PANEL_X1, 34, PANEL_X2, 36, L.useCurrentRpm or "IST ALS SOLL", colors.cyan, function()
+    local entry = getListItem(state.turbines, state.selectedTurbine)
+    if not entry then return end
+    setTurbineTargetRPM(cfg, state, entry, turbines.getRPM(entry.p))
+  end)
+
+  button(mon, "flowDown", LEFT_X1, 38, LEFT_X2, 40, L.flowDown or "FLOW -", cfg.auto and colors.cyan or colors.gray, function()
     local entry = getListItem(state.turbines, state.selectedTurbine)
     if not entry then return end
 
@@ -532,7 +596,7 @@ local function drawTurbineMenu(mon, state, cfg, L, turbinesPerPage)
     turbines.setFlow(entry.p, turbines.getFlow(entry.p) - 25)
   end)
 
-  button(mon, "flowUp", RIGHT_X1, 26, RIGHT_X2, 28, L.flowUp or "FLOW +", cfg.auto and colors.cyan or colors.gray, function()
+  button(mon, "flowUp", RIGHT_X1, 38, RIGHT_X2, 40, L.flowUp or "FLOW +", cfg.auto and colors.cyan or colors.gray, function()
     local entry = getListItem(state.turbines, state.selectedTurbine)
     if not entry then return end
 
@@ -553,7 +617,7 @@ local function drawTurbineMenu(mon, state, cfg, L, turbinesPerPage)
     turbines.setFlow(entry.p, turbines.getFlow(entry.p) + 25)
   end)
 
-  button(mon, "calTurbine", PANEL_X1, 31, PANEL_X2, 33, L.calibrateTurbine or "KAL TURB.", colors.orange, function()
+  button(mon, "calTurbine", PANEL_X1, 42, PANEL_X2, 44, L.calibrateTurbine or "KAL TURB.", colors.orange, function()
     if control.startCalibration(state) then
       setPage(state, "main")
     end

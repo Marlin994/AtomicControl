@@ -43,8 +43,9 @@ M.LEARN_REQUIRED_TICKS = 60
 M.LEARN_CHANGE_THRESHOLD = 0.02
 M.LEARN_ALPHA = 0.10
 
-local function maxStepForRPM(rpm)
-  local diff = math.abs((rpm or 0) - M.TARGET_RPM)
+local function maxStepForRPM(rpm, targetRPM)
+  targetRPM = targetRPM or M.TARGET_RPM
+  local diff = math.abs((rpm or 0) - targetRPM)
 
   if diff > 100 then return M.FLOW_STEP_FAR end
   if diff > 50 then return M.FLOW_STEP_MED end
@@ -75,6 +76,19 @@ function M.getCalibration(cfg, entry)
   return tonumber(value)
 end
 
+function M.getTargetRPM(cfg, entry)
+  if not cfg or not entry or not entry.name then return M.TARGET_RPM end
+  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+
+  local value = cfg.turbineCalibrations[entry.name]
+  if type(value) == "table" then
+    return utils.clamp(math.floor(tonumber(value.rpm) or M.TARGET_RPM), 1200, 2200)
+  end
+
+  return M.TARGET_RPM
+end
+
+
 local function getIdleFlow(cfg, entry)
   if not cfg or not entry or not entry.name then return nil end
   cfg.turbineCalibrations = cfg.turbineCalibrations or {}
@@ -95,11 +109,12 @@ function M.setCalibration(cfg, entry, flow)
   cfg.turbineCalibrations = cfg.turbineCalibrations or {}
 
   local nominal = math.floor(flow or 0)
+  local targetRPM = M.getTargetRPM(cfg, entry)
 
   cfg.turbineCalibrations[entry.name] = {
     flow = nominal,
     idleFlow = utils.clamp(math.floor(nominal * 0.10), 25, 250),
-    rpm = M.TARGET_RPM,
+    rpm = targetRPM,
     learned = false,
     calibratedAt = os.epoch and os.epoch("utc") or os.clock()
   }
@@ -115,10 +130,12 @@ local function updateCalibrationValue(cfg, entry, newFlow, learned)
   local old = cfg.turbineCalibrations[entry.name]
   local oldTable = type(old) == "table" and old or {}
 
+  local targetRPM = tonumber(oldTable.rpm) or M.getTargetRPM(cfg, entry)
+
   cfg.turbineCalibrations[entry.name] = {
     flow = rounded,
     idleFlow = utils.clamp(math.floor(rounded * 0.10), 25, 250),
-    rpm = M.TARGET_RPM,
+    rpm = targetRPM,
     learned = learned or oldTable.learned or false,
     calibratedAt = oldTable.calibratedAt or (os.epoch and os.epoch("utc") or os.clock()),
     updatedAt = os.epoch and os.epoch("utc") or os.clock()
@@ -131,8 +148,9 @@ local function resetPid(entry)
   entry.pidCarry = 0
 end
 
-local function pidFlowDelta(entry, rpm)
-  local error = M.TARGET_RPM - (rpm or 0)
+local function pidFlowDelta(entry, rpm, targetRPM)
+  targetRPM = targetRPM or M.TARGET_RPM
+  local error = targetRPM - (rpm or 0)
   local absError = math.abs(error)
 
   if absError <= M.RPM_DEADBAND then
@@ -142,7 +160,7 @@ local function pidFlowDelta(entry, rpm)
     return 0
   end
 
-  local maxStep = maxStepForRPM(rpm)
+  local maxStep = maxStepForRPM(rpm, targetRPM)
 
   entry.pidIntegral = clamp((entry.pidIntegral or 0) + error, -M.PID_INTEGRAL_LIMIT, M.PID_INTEGRAL_LIMIT)
 
@@ -171,7 +189,7 @@ local function pidFlowDelta(entry, rpm)
   return clamp(delta, -maxStep, maxStep)
 end
 
-local function learnCalibration(state, cfg, entry, rpm, flow, storageFull)
+local function learnCalibration(state, cfg, entry, rpm, flow, storageFull, targetRPM)
   if storageFull or cfg.operationMode == "CYANITE" then
     entry.learnTicks = 0
     return
@@ -179,7 +197,7 @@ local function learnCalibration(state, cfg, entry, rpm, flow, storageFull)
 
   if not entry.enabled then entry.learnTicks = 0 return end
   if not turbines.getInductor(entry.p) then entry.learnTicks = 0 return end
-  if rpm < M.LEARN_MIN_RPM or rpm > M.LEARN_MAX_RPM then entry.learnTicks = 0 return end
+  if math.abs((rpm or 0) - (targetRPM or M.TARGET_RPM)) > 2 then entry.learnTicks = 0 return end
   if flow <= 0 then entry.learnTicks = 0 return end
 
   entry.learnTicks = (entry.learnTicks or 0) + 1
@@ -238,20 +256,21 @@ function M.runCalibration(state, cfg)
   local t = entry.p
   local rpm = turbines.getRPM(t)
   local flow = turbines.getFlow(t)
+  local targetRPM = M.getTargetRPM(cfg, entry)
 
   entry.enabled = true
   turbines.setActive(t, true)
 
-  if rpm < M.RPM_DISENGAGE then
+  if rpm < targetRPM - 100 then
     turbines.setInductor(t, false)
-  elseif rpm >= M.RPM_REENGAGE then
+  elseif rpm >= targetRPM - 50 then
     turbines.setInductor(t, true)
   end
 
-  local delta = pidFlowDelta(entry, rpm)
+  local delta = pidFlowDelta(entry, rpm, targetRPM)
   if delta ~= 0 then turbines.setFlow(t, flow + delta) end
 
-  if rpm >= M.CAL_STABLE_MIN and rpm <= M.CAL_STABLE_MAX then
+  if rpm >= targetRPM - 5 and rpm <= targetRPM + 5 then
     cal.stableTicks = cal.stableTicks + 1
   else
     cal.stableTicks = 0
@@ -285,7 +304,7 @@ function M.runCalibration(state, cfg)
     return true
   end
 
-  state.statusLine = "Cal T" .. tostring(cal.turbineIndex) .. ": " .. math.floor(rpm) .. " RPM / " .. math.floor(flow) .. " mB/t"
+  state.statusLine = "Cal T" .. tostring(cal.turbineIndex) .. ": " .. math.floor(rpm) .. "/" .. math.floor(targetRPM) .. " RPM / " .. math.floor(flow) .. " mB/t"
   return true
 end
 
@@ -296,7 +315,14 @@ function M.update(state, cfg, storageFull)
   for _, entry in ipairs(state.turbines or {}) do
     local t = entry.p
 
-    if not entry.enabled then
+    if not deviceAutoEnabled(cfg, entry) then
+      entry.enabled = false
+      turbines.setActive(t, false)
+      turbines.setInductor(t, false)
+      turbines.setFlow(t, 0)
+      entry.learnTicks = 0
+      resetPid(entry)
+    elseif not entry.enabled then
       turbines.setActive(t, false)
       turbines.setInductor(t, false)
       turbines.setFlow(t, 0)
@@ -307,6 +333,7 @@ function M.update(state, cfg, storageFull)
       local flow = turbines.getFlow(t)
       local engaged = turbines.getInductor(t)
       local calibrated = M.getCalibration(cfg, entry)
+      local targetRPM = M.getTargetRPM(cfg, entry)
 
       turbines.setActive(t, state.enabled)
 
@@ -329,7 +356,7 @@ function M.update(state, cfg, storageFull)
         entry.learnTicks = 0
         resetPid(entry)
       else
-        if calibrated and calibrated > 0 and math.abs(M.TARGET_RPM - rpm) > 50 and math.abs(calibrated - flow) > 150 then
+        if calibrated and calibrated > 0 and math.abs(targetRPM - rpm) > 50 and math.abs(calibrated - flow) > 150 then
           if calibrated > flow then
             turbines.setFlow(t, flow + M.FLOW_STEP_FAR)
           else
@@ -337,22 +364,22 @@ function M.update(state, cfg, storageFull)
           end
         end
 
-        if rpm < M.RPM_DISENGAGE then
+        if rpm < targetRPM - 100 then
           turbines.setInductor(t, false)
           needsSteam = true
-        elseif rpm < M.RPM_REENGAGE then
+        elseif rpm < targetRPM - 50 then
           turbines.setInductor(t, engaged)
           needsSteam = true
         else
           turbines.setInductor(t, true)
         end
 
-        local delta = pidFlowDelta(entry, rpm)
+        local delta = pidFlowDelta(entry, rpm, targetRPM)
         if delta ~= 0 then turbines.setFlow(t, turbines.getFlow(t) + delta) end
 
-        if rpm < M.TARGET_RPM - 10 then needsSteam = true end
+        if rpm < targetRPM - 10 then needsSteam = true end
 
-        learnCalibration(state, cfg, entry, rpm, turbines.getFlow(t), storageFull)
+        learnCalibration(state, cfg, entry, rpm, turbines.getFlow(t), storageFull, targetRPM)
       end
     end
   end
