@@ -17,6 +17,34 @@ function M.startReactorCalibration(state)
   return ReactorCalibration.start(state)
 end
 
+local function deviceAutoEnabled(cfg, entry)
+  if not entry or not entry.name then return true end
+  cfg.deviceAutoEnabled = cfg.deviceAutoEnabled or {}
+  return cfg.deviceAutoEnabled[entry.name] ~= false
+end
+
+local function shutdownAutoDisabledDevices(state, cfg)
+  for _, r in ipairs(state.reactors or {}) do
+    if not deviceAutoEnabled(cfg, r) then
+      reactors.setActive(r, false)
+      reactors.setRods(r, 100)
+      r.managedActive = false
+    end
+  end
+
+  for _, t in ipairs(state.turbines or {}) do
+    if not deviceAutoEnabled(cfg, t) then
+      turbines.setActive(t.p, false)
+      turbines.setInductor(t.p, false)
+      turbines.setFlow(t.p, 0)
+      t.learnTicks = 0
+      t.pidIntegral = 0
+      t.pidLastError = nil
+      t.pidCarry = 0
+    end
+  end
+end
+
 function M.update(state, cfg, L)
   L = L or {}
 
@@ -45,6 +73,8 @@ function M.update(state, cfg, L)
     state.statusLine = L.statusManualMode or "Manueller Modus"
     return
   end
+
+  shutdownAutoDisabledDevices(state, cfg)
 
   local storagePct, storageOk = energy.getPercent(state.storage)
   local storageLow = storageOk and storagePct * 100 <= cfg.storageMin

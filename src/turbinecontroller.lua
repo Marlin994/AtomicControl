@@ -61,6 +61,43 @@ function M.getCalibration(cfg, entry)
   return tonumber(value)
 end
 
+function M.getTargetRPM(cfg, entry)
+  if not cfg or not entry or not entry.name then return M.TARGET_RPM end
+  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+
+  local value = cfg.turbineCalibrations[entry.name]
+  if type(value) == "table" then
+    return tonumber(value.rpm) or M.TARGET_RPM
+  end
+
+  return M.TARGET_RPM
+end
+
+function M.setTargetRPM(cfg, entry, rpm)
+  if not cfg or not entry or not entry.name or not rpm then return false end
+  cfg.turbineCalibrations = cfg.turbineCalibrations or {}
+
+  local value = cfg.turbineCalibrations[entry.name]
+  local flow = nil
+  local idleFlow = nil
+
+  if type(value) == "table" then
+    flow = tonumber(value.flow)
+    idleFlow = tonumber(value.idleFlow)
+  else
+    flow = tonumber(value)
+  end
+
+  cfg.turbineCalibrations[entry.name] = {
+    flow = flow,
+    rpm = math.floor(tonumber(rpm) + 0.5),
+    idleFlow = idleFlow,
+    adjustedAt = os.epoch and os.epoch("utc") or os.clock()
+  }
+
+  return true
+end
+
 local function getIdleFlow(cfg, entry)
   if not cfg or not entry or not entry.name then return nil end
   cfg.turbineCalibrations = cfg.turbineCalibrations or {}
@@ -117,20 +154,18 @@ local function resetPid(entry)
   entry.pidCarry = 0
 end
 
-local function pidFlowDelta(entry, rpm)
-  local error = M.TARGET_RPM - (rpm or 0)
-  local absError = math.abs(error)
+local function pidFlowDelta(entry, rpm, targetRpm)
+  targetRpm = tonumber(targetRpm) or M.TARGET_RPM
 
-  if absError <= M.RPM_DEADBAND then
-    entry.pidIntegral = (entry.pidIntegral or 0) * 0.80
+  local error = targetRpm - rpm
+
+  if math.abs(error) <= M.RPM_DEADBAND then
     entry.pidLastError = error
-    entry.pidCarry = 0
     return 0
   end
 
-  local maxStep = maxStepForRPM(rpm)
-
-  entry.pidIntegral = clamp((entry.pidIntegral or 0) + error, -M.PID_INTEGRAL_LIMIT, M.PID_INTEGRAL_LIMIT)
+  entry.pidIntegral = (entry.pidIntegral or 0) + error
+  entry.pidIntegral = utils.clamp(entry.pidIntegral, -M.PID_INTEGRAL_LIMIT, M.PID_INTEGRAL_LIMIT)
 
   local derivative = 0
   if entry.pidLastError ~= nil then
@@ -138,26 +173,26 @@ local function pidFlowDelta(entry, rpm)
   end
   entry.pidLastError = error
 
-  local output =
-    (M.PID_KP * error) +
-    (M.PID_KI * entry.pidIntegral) +
-    (M.PID_KD * derivative)
+  local raw =
+    (error * M.PID_KP) +
+    ((entry.pidIntegral or 0) * M.PID_KI) +
+    (derivative * M.PID_KD)
 
-  output = clamp(output, -maxStep, maxStep)
+  entry.pidCarry = (entry.pidCarry or 0) + raw
 
-  entry.pidCarry = (entry.pidCarry or 0) + output
-  entry.pidCarry = clamp(entry.pidCarry, -maxStep, maxStep)
+  local maxStep = maxStepForError(error)
+  local step = 0
 
-  local delta = integerPart(entry.pidCarry)
-
-  if delta ~= 0 then
-    entry.pidCarry = entry.pidCarry - delta
+  if math.abs(entry.pidCarry) >= 1 then
+    step = math.floor(math.abs(entry.pidCarry)) * (entry.pidCarry > 0 and 1 or -1)
+    step = utils.clamp(step, -maxStep, maxStep)
+    entry.pidCarry = entry.pidCarry - step
   end
 
-  return clamp(delta, -maxStep, maxStep)
+  return step
 end
 
-local function learnCalibration(state, cfg, entry, rpm, flow, storageFull)
+local function learnCalibration(state, cfg, entry, rpm, flow, storageFull, targetRpm)
   if storageFull or cfg.operationMode == "CYANITE" then
     entry.learnTicks = 0
     return
@@ -165,7 +200,8 @@ local function learnCalibration(state, cfg, entry, rpm, flow, storageFull)
 
   if not entry.enabled then entry.learnTicks = 0 return end
   if not turbines.getInductor(entry.p) then entry.learnTicks = 0 return end
-  if rpm < M.LEARN_MIN_RPM or rpm > M.LEARN_MAX_RPM then entry.learnTicks = 0 return end
+  targetRpm = tonumber(targetRpm) or M.TARGET_RPM
+  if rpm < targetRpm - 2 or rpm > targetRpm + 2 then entry.learnTicks = 0 return end
   if flow <= 0 then entry.learnTicks = 0 return end
 
   entry.learnTicks = (entry.learnTicks or 0) + 1
@@ -234,7 +270,7 @@ function M.runCalibration(state, cfg)
     turbines.setInductor(t, true)
   end
 
-  local delta = pidFlowDelta(entry, rpm)
+  local delta = pidFlowDelta(entry, rpm, targetRpm)
   if delta ~= 0 then turbines.setFlow(t, flow + delta) end
 
   if rpm >= M.CAL_STABLE_MIN and rpm <= M.CAL_STABLE_MAX then
@@ -282,7 +318,9 @@ function M.update(state, cfg, storageFull)
   for _, entry in ipairs(state.turbines or {}) do
     local t = entry.p
 
-    if not entry.enabled then
+    if not deviceAutoEnabled(cfg, entry) then
+      shutdownTurbine(entry)
+    elseif not entry.enabled then
       turbines.setActive(t, false)
       turbines.setInductor(t, false)
       turbines.setFlow(t, 0)
@@ -293,6 +331,7 @@ function M.update(state, cfg, storageFull)
       local flow = turbines.getFlow(t)
       local engaged = turbines.getInductor(t)
       local calibrated = M.getCalibration(cfg, entry)
+      local targetRpm = M.getTargetRPM(cfg, entry)
 
       turbines.setActive(t, state.enabled)
 
@@ -315,7 +354,7 @@ function M.update(state, cfg, storageFull)
         entry.learnTicks = 0
         resetPid(entry)
       else
-        if calibrated and calibrated > 0 and math.abs(M.TARGET_RPM - rpm) > 50 and math.abs(calibrated - flow) > 150 then
+        if calibrated and calibrated > 0 and math.abs(targetRpm - rpm) > 50 and math.abs(calibrated - flow) > 150 then
           if calibrated > flow then
             turbines.setFlow(t, flow + M.FLOW_STEP_FAR)
           else
@@ -333,12 +372,12 @@ function M.update(state, cfg, storageFull)
           turbines.setInductor(t, true)
         end
 
-        local delta = pidFlowDelta(entry, rpm)
+        local delta = pidFlowDelta(entry, rpm, targetRpm)
         if delta ~= 0 then turbines.setFlow(t, turbines.getFlow(t) + delta) end
 
-        if rpm < M.TARGET_RPM - 10 then needsSteam = true end
+        if rpm < targetRpm - 10 then needsSteam = true end
 
-        learnCalibration(state, cfg, entry, rpm, turbines.getFlow(t), storageFull)
+        learnCalibration(state, cfg, entry, rpm, turbines.getFlow(t), storageFull, targetRpm)
       end
     end
   end
@@ -346,11 +385,11 @@ function M.update(state, cfg, storageFull)
   return needsSteam
 end
 
-function M.lowestRPM(state)
+function M.lowestRPM(state, cfg)
   local lowest = nil
 
   for _, entry in ipairs(state.turbines or {}) do
-    if entry.enabled then
+    if entry.enabled and deviceAutoEnabled(cfg, entry) then
       local rpm = turbines.getRPM(entry.p)
       if lowest == nil or rpm < lowest then lowest = rpm end
     end

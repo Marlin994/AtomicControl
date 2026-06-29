@@ -23,7 +23,8 @@ local defaults = {
   reactors = {},
   turbines = {},
   turbineCalibrations = {},
-  reactorCalibrations = {}
+  reactorCalibrations = {},
+  deviceAutoEnabled = {}
 }
 
 local function copyTable(tbl)
@@ -59,7 +60,8 @@ function M.load()
   if type(cfg.reactors) ~= "table" then cfg.reactors = {} end
   if type(cfg.turbines) ~= "table" then cfg.turbines = {} end
   if type(cfg.turbineCalibrations) ~= "table" then cfg.turbineCalibrations = {} end
-  if type(cfg.reactorCalibrations) ~= "table" then cfg.reactorCalibrations = {} end
+  if type(cfg.reactorCalibrations) ~= "table" then cfg.reactorCalibrations = {},
+  deviceAutoEnabled = {} end
 
   if cfg.language ~= "de" and cfg.language ~= "en" then
     cfg.language = "de"
@@ -84,7 +86,8 @@ function M.save(cfg, state)
   cfg.turbines = {}
 
   if type(cfg.turbineCalibrations) ~= "table" then cfg.turbineCalibrations = {} end
-  if type(cfg.reactorCalibrations) ~= "table" then cfg.reactorCalibrations = {} end
+  if type(cfg.reactorCalibrations) ~= "table" then cfg.reactorCalibrations = {},
+  deviceAutoEnabled = {} end
 
   if state then
     for _, r in ipairs(state.reactors or {}) do

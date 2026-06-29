@@ -1,171 +1,236 @@
 local utils = require("utils")
+
 local M = {}
 
-local function has(storage, method)
-  return storage and type(storage[method]) == "function"
+local lastStored = nil
+
+local function call(p, name)
+  if not p or type(p[name]) ~= "function" then return nil end
+  return utils.safe(function() return p[name]() end, nil)
 end
 
-local function call(storage, method)
-  if not has(storage, method) then return nil end
-  return utils.safe(function() return storage[method]() end, nil)
-end
+local function num(v)
+  if type(v) == "number" then return v end
+  if type(v) == "string" then return tonumber(v) end
 
-function M.isEnergyStorage(storage)
-  if not storage then return false end
-
-  if has(storage, "getEnergyStored") and has(storage, "getMaxEnergyStored") then return true end
-  if has(storage, "getEnergyStored") and has(storage, "getEnergyCapacity") then return true end
-  if has(storage, "getEnergyStats") then return true end
-  if has(storage, "getEnergy") and has(storage, "getMaxEnergy") then return true end
-  if has(storage, "getStored") and has(storage, "getCapacity") then return true end
-  if has(storage, "getRFStored") and has(storage, "getMaxRFStored") then return true end
-  if has(storage, "getEnergyFilledPercentage") then return true end
-
-  return false
-end
-
-function M.getStored(storage)
-  if not storage then return 0, 1, false end
-
-  local stored = call(storage, "getEnergyStored")
-  local max = call(storage, "getMaxEnergyStored")
-  if stored and max and max > 0 then return stored, max, true end
-
-  stored = call(storage, "getEnergyStored")
-  max = call(storage, "getEnergyCapacity")
-  if stored and max and max > 0 then return stored, max, true end
-
-  local stats = call(storage, "getEnergyStats")
-  if type(stats) == "table" then
-    stored = stats.energyStored
-    max = stats.energyCapacity
-    if stored and max and max > 0 then return stored, max, true end
-  end
-
-  stored = call(storage, "getEnergy")
-  max = call(storage, "getMaxEnergy")
-  if stored and max and max > 0 then return stored, max, true end
-
-  stored = call(storage, "getStored")
-  max = call(storage, "getCapacity")
-  if stored and max and max > 0 then return stored, max, true end
-
-  stored = call(storage, "getRFStored")
-  max = call(storage, "getMaxRFStored")
-  if stored and max and max > 0 then return stored, max, true end
-
-  local pct = call(storage, "getEnergyFilledPercentage")
-  if pct then
-    if pct > 1 then pct = pct / 100 end
-    return pct, 1, true
-  end
-
-  return 0, 1, false
-end
-
-function M.getPercent(storage)
-  local stored, max, ok = M.getStored(storage)
-  if not ok or max <= 0 then return 0, false end
-  return utils.clamp(stored / max, 0, 1), true
-end
-
-local function getDirectIo(storage)
-  if not storage then return nil end
-
-  local inserted = call(storage, "getEnergyInsertedLastTick")
-  local extracted = call(storage, "getEnergyExtractedLastTick")
-
-  if inserted ~= nil or extracted ~= nil then
-    inserted = tonumber(inserted) or 0
-    extracted = tonumber(extracted) or 0
-
-    return {
-      input = inserted,
-      output = extracted,
-      net = inserted - extracted
-    }
-  end
-
-  local io = call(storage, "getEnergyIoLastTick")
-  if io ~= nil then
-    io = tonumber(io) or 0
-
-    if io >= 0 then
-      return { input = io, output = 0, net = io }
-    else
-      return { input = 0, output = math.abs(io), net = io }
-    end
-  end
-
-  local stats = call(storage, "getEnergyStats")
-  if type(stats) == "table" then
-    inserted = tonumber(stats.energyInsertedLastTick)
-    extracted = tonumber(stats.energyExtractedLastTick)
-
-    if inserted ~= nil or extracted ~= nil then
-      inserted = inserted or 0
-      extracted = extracted or 0
-
-      return {
-        input = inserted,
-        output = extracted,
-        net = inserted - extracted
-      }
-    end
-
-    io = tonumber(stats.energyIoLastTick)
-    if io ~= nil then
-      if io >= 0 then
-        return { input = io, output = 0, net = io }
-      else
-        return { input = 0, output = math.abs(io), net = io }
-      end
-    end
+  if type(v) == "table" then
+    return tonumber(v.amount) or
+           tonumber(v.stored) or
+           tonumber(v.energy) or
+           tonumber(v.value) or
+           tonumber(v.current) or
+           tonumber(v.rf) or
+           tonumber(v.fe)
   end
 
   return nil
 end
 
-function M.updateFlow(state, updateSeconds)
-  local direct = getDirectIo(state.storage)
+local function statNumber(stats, ...)
+  if type(stats) ~= "table" then return nil end
 
-  if direct then
-    state.storageInRF = direct.input
-    state.storageOutRF = direct.output
-    state.storageNetRF = direct.net
+  local keys = {...}
+  for _, key in ipairs(keys) do
+    local value = stats[key]
+    local n = num(value)
+    if n then return n end
+  end
+
+  return nil
+end
+
+local function getStats(p)
+  local stats = call(p, "getEnergyStats")
+  if type(stats) == "table" then return stats end
+  return nil
+end
+
+function M.isEnergyStorage(storage)
+  if not storage then return false end
+
+  if type(storage.getEnergyStored) == "function" and
+     (type(storage.getMaxEnergyStored) == "function" or type(storage.getEnergyCapacity) == "function") then
+    return true
+  end
+
+  if type(storage.getEnergyStats) == "function" then
+    local stats = getStats(storage)
+    if stats then
+      local stored = statNumber(stats, "stored", "energyStored", "energy", "amount", "current", "rf", "fe")
+      local max = statNumber(stats, "capacity", "maxEnergyStored", "energyCapacity", "max", "amountMax", "maxEnergy", "capacityRF", "capacityFE")
+      if stored ~= nil or max ~= nil then return true end
+    end
+    return true
+  end
+
+  if type(storage.getEnergy) == "function" and type(storage.getMaxEnergy) == "function" then return true end
+  if type(storage.getStored) == "function" and type(storage.getCapacity) == "function" then return true end
+  if type(storage.getRFStored) == "function" and type(storage.getMaxRFStored) == "function" then return true end
+  if type(storage.getEnergyFilledPercentage) == "function" then return true end
+
+  return false
+end
+
+function M.getStored(storage)
+  if not storage then return nil end
+
+  local v = num(call(storage, "getEnergyStored"))
+  if v then return v end
+
+  v = num(call(storage, "getEnergy"))
+  if v then return v end
+
+  v = num(call(storage, "getStored"))
+  if v then return v end
+
+  v = num(call(storage, "getRFStored"))
+  if v then return v end
+
+  local stats = getStats(storage)
+  if stats then
+    v = statNumber(stats, "stored", "energyStored", "energy", "amount", "current", "rf", "fe")
+    if v then return v end
+  end
+
+  return nil
+end
+
+function M.getCapacity(storage)
+  if not storage then return nil end
+
+  local v = num(call(storage, "getMaxEnergyStored"))
+  if v then return v end
+
+  v = num(call(storage, "getEnergyCapacity"))
+  if v then return v end
+
+  v = num(call(storage, "getMaxEnergy"))
+  if v then return v end
+
+  v = num(call(storage, "getCapacity"))
+  if v then return v end
+
+  v = num(call(storage, "getMaxRFStored"))
+  if v then return v end
+
+  local stats = getStats(storage)
+  if stats then
+    v = statNumber(stats, "capacity", "maxEnergyStored", "energyCapacity", "max", "amountMax", "maxEnergy", "capacityRF", "capacityFE")
+    if v then return v end
+  end
+
+  return nil
+end
+
+function M.getPercent(storage)
+  if not storage then return 0, false end
+
+  local filled = num(call(storage, "getEnergyFilledPercentage"))
+  if filled ~= nil then
+    if filled > 1 then filled = filled / 100 end
+    return utils.clamp(filled, 0, 1), true
+  end
+
+  local stored = M.getStored(storage)
+  local max = M.getCapacity(storage)
+
+  stored = tonumber(stored)
+  max = tonumber(max)
+
+  if stored ~= nil and max ~= nil and max > 0 then
+    return utils.clamp(stored / max, 0, 1), true
+  end
+
+  return 0, false
+end
+
+local function directInserted(storage)
+  return num(call(storage, "getEnergyInsertedLastTick"))
+end
+
+local function directExtracted(storage)
+  return num(call(storage, "getEnergyExtractedLastTick"))
+end
+
+local function directIo(storage)
+  return num(call(storage, "getEnergyIoLastTick"))
+end
+
+local function statsInserted(stats)
+  return statNumber(stats, "insertedLastTick", "energyInsertedLastTick", "inserted", "input", "in", "rfIn", "feIn")
+end
+
+local function statsExtracted(stats)
+  return statNumber(stats, "extractedLastTick", "energyExtractedLastTick", "extracted", "output", "out", "rfOut", "feOut")
+end
+
+function M.updateFlow(state)
+  if not state then return end
+
+  local storage = state.storage
+  local stored = M.getStored(storage)
+
+  state.storageInRF = 0
+  state.storageOutRF = 0
+  state.storageNetRF = 0
+
+  if not storage then
+    lastStored = nil
     return
   end
 
-  local storedNow, maxNow, ok = M.getStored(state.storage)
+  local inserted = directInserted(storage)
+  local extracted = directExtracted(storage)
 
-  if not ok then
-    state.storageInRF = 0
-    state.storageOutRF = 0
-    state.storageNetRF = 0
+  if inserted or extracted then
+    state.storageInRF = inserted or 0
+    state.storageOutRF = extracted or 0
+    state.storageNetRF = state.storageInRF - state.storageOutRF
+    lastStored = stored
     return
   end
 
-  if state.lastStorage == nil then
-    state.lastStorage = storedNow
-    state.storageInRF = 0
-    state.storageOutRF = 0
-    state.storageNetRF = 0
+  local io = directIo(storage)
+  if io then
+    state.storageNetRF = io
+    if io >= 0 then
+      state.storageInRF = io
+      state.storageOutRF = 0
+    else
+      state.storageInRF = 0
+      state.storageOutRF = -io
+    end
+    lastStored = stored
     return
   end
 
-  local diff = storedNow - state.lastStorage
-  state.lastStorage = storedNow
+  local stats = getStats(storage)
+  if stats then
+    inserted = statsInserted(stats)
+    extracted = statsExtracted(stats)
 
-  local rfPerTick = diff / ((updateSeconds or 0.5) * 20)
-  state.storageNetRF = rfPerTick
-
-  if rfPerTick >= 0 then
-    state.storageInRF = rfPerTick
-    state.storageOutRF = 0
-  else
-    state.storageInRF = 0
-    state.storageOutRF = math.abs(rfPerTick)
+    if inserted or extracted then
+      state.storageInRF = inserted or 0
+      state.storageOutRF = extracted or 0
+      state.storageNetRF = state.storageInRF - state.storageOutRF
+      lastStored = stored
+      return
+    end
   end
+
+  if stored and lastStored then
+    local delta = stored - lastStored
+    state.storageNetRF = delta
+    if delta >= 0 then
+      state.storageInRF = delta
+      state.storageOutRF = 0
+    else
+      state.storageInRF = 0
+      state.storageOutRF = -delta
+    end
+  end
+
+  lastStored = stored
 end
 
 return M
