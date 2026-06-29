@@ -9,22 +9,9 @@ local M = {}
 
 local buttons = {}
 
-local function isDeviceAutoEnabled(a, b)
-  local cfg, entry
-
-  if b == nil then
-    cfg = nil
-    entry = a
-  else
-    cfg = a
-    entry = b
-  end
-
+local function isDeviceAutoEnabled(cfg, entry)
   if not entry or not entry.name then return true end
-
-  if type(cfg) ~= "table" then
-    return true
-  end
+  if type(cfg) ~= "table" then return true end
 
   if type(cfg.deviceAutoEnabled) ~= "table" then
     cfg.deviceAutoEnabled = {}
@@ -37,22 +24,9 @@ local function isDeviceAutoEnabled(a, b)
   return value and true or false
 end
 
-local function setDeviceAutoEnabled(a, b, c, d)
-  local cfg, state, entry, value
-
-  if d == nil then
-    cfg = nil
-    state = nil
-    entry = a
-    value = b
-  else
-    cfg = a
-    state = b
-    entry = c
-    value = d
-  end
-
-  if type(cfg) ~= "table" or not entry or not entry.name then return end
+local function setDeviceAutoEnabled(cfg, state, entry, value)
+  if type(cfg) ~= "table" then return end
+  if not entry or not entry.name then return end
 
   cfg.deviceAutoEnabled = cfg.deviceAutoEnabled or {}
   cfg.deviceAutoEnabled[entry.name] = value and true or false
@@ -61,6 +35,8 @@ local function setDeviceAutoEnabled(a, b, c, d)
     state.configDirty = true
   end
 end
+
+
 
 
 
