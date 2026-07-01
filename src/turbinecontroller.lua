@@ -17,6 +17,13 @@ local function deviceAutoEnabled(cfg, entry)
 end
 
 
+local function numberOr(value, fallback)
+  local n = tonumber(value)
+  if n == nil then return fallback or 0 end
+  return n
+end
+
+
 M.TARGET_RPM = 1800
 M.RPM_DISENGAGE = 1700
 M.RPM_REENGAGE = 1750
@@ -54,6 +61,10 @@ local function maxStepForRPM(rpm, targetRPM)
 end
 
 local function clamp(v, min, max)
+  v = numberOr(v, 0)
+  min = numberOr(min, 0)
+  max = numberOr(max, 0)
+
   if v < min then return min end
   if v > max then return max end
   return v
@@ -198,6 +209,7 @@ local function learnCalibration(state, cfg, entry, rpm, flow, storageFull, targe
   if not entry.enabled then entry.learnTicks = 0 return end
   if not turbines.getInductor(entry.p) then entry.learnTicks = 0 return end
   if math.abs((rpm or 0) - (targetRPM or M.TARGET_RPM)) > 2 then entry.learnTicks = 0 return end
+  flow = numberOr(flow, 0)
   if flow <= 0 then entry.learnTicks = 0 return end
 
   entry.learnTicks = (entry.learnTicks or 0) + 1
@@ -254,9 +266,9 @@ function M.runCalibration(state, cfg)
   end
 
   local t = entry.p
-  local rpm = turbines.getRPM(t)
-  local flow = turbines.getFlow(t)
-  local targetRPM = M.getTargetRPM(cfg, entry)
+  local rpm = numberOr(turbines.getRPM(t), 0)
+  local flow = numberOr(turbines.getFlow(t), 0)
+  local targetRPM = numberOr(M.getTargetRPM(cfg, entry), M.TARGET_RPM)
 
   entry.enabled = true
   turbines.setActive(t, true)
@@ -279,7 +291,7 @@ function M.runCalibration(state, cfg)
   cal.ticks = cal.ticks + 1
 
   if cal.stableTicks >= M.CAL_STABLE_TICKS then
-    local finalFlow = turbines.getFlow(t)
+    local finalFlow = numberOr(turbines.getFlow(t), 0)
     M.setCalibration(cfg, entry, finalFlow)
     state.configDirty = true
     state.calibration = nil
@@ -289,7 +301,7 @@ function M.runCalibration(state, cfg)
   end
 
   if cal.ticks >= M.CAL_TIMEOUT_TICKS then
-    local finalFlow = turbines.getFlow(t)
+    local finalFlow = numberOr(turbines.getFlow(t), 0)
 
     if finalFlow > 0 then
       M.setCalibration(cfg, entry, finalFlow)
@@ -329,11 +341,12 @@ function M.update(state, cfg, storageFull)
       entry.learnTicks = 0
       resetPid(entry)
     else
-      local rpm = turbines.getRPM(t)
-      local flow = turbines.getFlow(t)
+      local rpm = numberOr(turbines.getRPM(t), 0)
+      local flow = numberOr(turbines.getFlow(t), 0)
       local engaged = turbines.getInductor(t)
       local calibrated = M.getCalibration(cfg, entry)
-      local targetRPM = M.getTargetRPM(cfg, entry)
+      calibrated = calibrated and numberOr(calibrated, 0) or nil
+      local targetRPM = numberOr(M.getTargetRPM(cfg, entry), M.TARGET_RPM)
 
       turbines.setActive(t, state.enabled)
 
@@ -392,7 +405,7 @@ function M.lowestRPM(state)
 
   for _, entry in ipairs(state.turbines or {}) do
     if entry.enabled then
-      local rpm = turbines.getRPM(entry.p)
+      local rpm = numberOr(turbines.getRPM(entry.p), 0)
       if lowest == nil or rpm < lowest then lowest = rpm end
     end
   end
